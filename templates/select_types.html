@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Select Extractions</title>
+</head>
+<body>
+  <h1>Please select the necessary extraction types:</h1>
+  <form method="post" action="{{ url_for('select_types') }}">
+    <label><input type="checkbox" name="steps" value="biostats"> Biostats & Programming</label><br>
+    <label><input type="checkbox" name="steps" value="data_management"> Data Management</label><br>
+    <label><input type="checkbox" name="steps" value="project_management"> Project Management</label><br>
+    <label><input type="checkbox" name="steps" value="conform"> CONFORM Informatics</label><br>
+    <!-- add more as needed -->
+    <button type="submit">Next → Upload Files</button>
+  </form>
+</body>
+</html>

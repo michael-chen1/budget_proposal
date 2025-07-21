@@ -1,0 +1,85 @@
+<!-- templates/results.html -->
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Extraction Results (Editable)</title>
+  </head>
+  <body>
+    <h1>Extracted Data (you can edit)</h1>
+
+     <form method="post" id="resultsForm">
+      <!-- if biostats was selected, show the Refresh sub‑step -->
+      {% if 'biostats' in session.extraction_steps %}
+        <hr>
+        <h2>Basic Extraction Complete</h2>
+        <p>Would you like to continue with extracting refresh data?</p>
+        <label>
+          <input type="checkbox" name="refresh_file_opt_in" value="yes">
+          Upload additional files for Refresh
+        </label><br>
+        <input type="file" name="refresh_docs" accept=".pdf,.docx" multiple><br>
+        <input type="hidden" name="calculate_refresh" id="calculateRefresh" value="">
+        <button type="button" id="confirmRefresh">Proceed with Refresh</button>
+      {% endif %}
+
+      <!-- Editable table -->
+      <table border="1" cellpadding="4" cellspacing="0">
+        <thead>
+          <tr>
+            <th>Field</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for key, value in results.items() %}
+            <tr>
+              <td>{{ key }}</td>
+              <td>
+                <input
+                  type="text"
+                  name="{{ key }}"
+                  value="{{ value }}"
+                  style="width:100px;"
+                >
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+
+      <p>
+        <button type="submit">Save Changes</button>
+      </p>
+
+     <!-- if biostats was selected, show the DMC sub‑step -->
+      {% if 'biostats' in session.extraction_steps %}
+        <hr>
+        <h2>Data Monitoring Committee detected</h2>
+        <p>Would you like to auto-fill DMC fields?</p>
+        <label>
+          <input type="checkbox" name="dmc_file_opt_in" value="yes">
+          Upload additional files for DMC
+        </label><br>
+        <input type="file" name="dmc_docs" accept=".pdf,.docx" multiple><br>
+        <button type="submit" name="calculate_dmc" value="yes">Yes, DMC</button>
+        <button type="submit" name="calculate_dmc" value="no">No, skip</button>
+      {% endif %}
+    </form>
+
+    <p><a href="{{ url_for('select_types') }}">Start Over</a></p>
+
+    <!-- Export to Excel -->
+    <form action="{{ url_for('export') }}" method="post" style="margin-top:1em;">
+      <button type="submit">📥 Download Budget Proposal (Excel)</button>
+    </form>
+
+    <script>
+      document.getElementById('confirmRefresh').onclick = function() {
+        document.getElementById('calculateRefresh').value = 'yes';
+        document.getElementById('resultsForm').submit();
+      };
+    </script>
+  </body>
+</html>

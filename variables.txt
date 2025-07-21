@@ -1,0 +1,75 @@
+Assumptions: 
+Screen Failure Rate 
+Dropout Rate
+SAE Rate of Enrolled Subjects
+Start-up duration (months)
+ADaM Simple, Complex, full refreshes
+Patient Profile Panels
+pre-allocated support hours
+
+From Protocol:
+Total Study Duration
+SDTM trial design domain count, subject domain count, full refreshes
+
+for full refreshes do subject participation duration / 6
+sdtm_tdd = 5
+full refreshes for TLF DMC = # of DMC meetings
+full refreshes for TLF IA = # of dose selection packages
+Given:
+unique tables, figures, listings (all TLFs)
+full refreshes
+DMC meetings
+Annual DSUR Reporting
+Annual Investigator's Brochure
+
+To extract from protocol/other documents:
+num_countries: specified number of countries, 
+num_sites: specified number of sites, 
+num_subj: specified number of enrolled subjects,
+enroll_duration: specified duration of enrollment in months,
+subj_duration: specified duration of subject participation in months,
+total_duration: specified duration of the whole study in months,
+tlf_dmc_unique_tables: specified number of unique tables for DMC,
+tlf_dmc_repeat_tables" specified number of repeat tables for DMC,
+tlf_dmc_unique_figures: specified number of unique figures for DMC,
+tlf_dmc_repeat_figures: specified number of repeat figures for DMC,
+tlf_dmc_unique_listings: specified number of unique listings for DMC,
+tlf_dmc_repeat_listings: specified number of repeat listings for DMC,
+tlf_ia_unique_tables: specified number of unique tables for IA dose selection,
+tlf_ia_repeat_tables: specified number of repeat tables for IA dose selection,
+tlf_ia_unique_figures: specified number of unique figures for IA dose selection,
+tlf_ia_repeat_figures: specified number of repeat figures for IA dose selection,
+tlf_ia_unique_listings: specified number of unique listings for IA dose selection,
+tlf_ia_repeat_listings: specified number of repeat listings for IA dose selection,
+num_dmc_meet: specified number of DMC meetings,
+dsur_report_tables: specified number of standard tables for annual DSUR reporting,
+dsur_report_listings: specified number of standard listings for annual DSUR reporting,
+investigator_tables: specified number of standard tables for annual investogator's brochure,
+investigator_listings: specified number of standard listings for annual investigator's brochure
+
+
+
+To predict based on protocol/other documents:
+sdtm_sd: predicted number of SDTM subject domains,
+adam_simp: predicted number of simple ADaM domains (most safety domains),
+adam_compl: predicted number of complex ADaM domains (ADSL, ADLB, ADEX, Efficacy),
+stat_support_requests: predicted number of statistical support hours needed throughout study duration,
+prog_support_requests: predicted number of programming support hours needed throughout study duration,
+patient_profile: predicted number of patient profile panels,
+
+
+set IA TLFs = total TLFs, half price
+
+maybe output json containing reasoning as well?
+
+layers:
+ - start with basic (sites/countries/enrollment, duration, tlfs, sdtm/adam datasaets, support hrs)
+ - dmc/dsur/ib
+ - sap
+ - patient profiles
+
+
+let user decide which type of extraction is needed (biostats/programming, data management, etc.)
+run extraction for each type, ensure dictionaries have same key names
+create two sheets for each type
+merge all into one spreadsheet for final download
