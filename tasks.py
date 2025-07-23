@@ -9,7 +9,7 @@ from extractors import (
 )
 from flask import current_app
 import ssl
-import certify
+import certifi
 
 def make_redis_conn():
     return Redis.from_url(
