@@ -14,8 +14,6 @@ import certifi
 def make_redis_conn():
     return Redis.from_url(
         os.environ["REDIS_URL"],
-        ssl=True,
-        ssl_cert_reqs=ssl.CERT_REQUIRED,
         ssl_ca_certs=certifi.where(),
     )
 
