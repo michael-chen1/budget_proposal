@@ -39,12 +39,19 @@ def run_extraction(steps, documents, refresh_opts, dmc_opts):
 
     # if refresh_opts is a tuple (do_refresh, docs[])
     do_refresh, refresh_docs = refresh_opts
+    r = True
+    if not refresh_docs:
+        r = False        
+        
     if "biostats" in steps and do_refresh:
-        data.update(calculate_refresh(data, refresh_docs, True))
+        data.update(calculate_refresh(data, refresh_docs, r))
 
     # same for DMC:
     do_dmc, dmc_docs = dmc_opts
+    d = True
+    if not dmc_docs:
+        d = False
     if "biostats" in steps and do_dmc:
-        data.update(calculate_dmc(data, dmc_docs, True))
+        data.update(calculate_dmc(data, dmc_docs, d))
 
     return data

@@ -62,50 +62,84 @@ def select_types():
 @app.route("/upload", methods=["GET", "POST"])
 def upload_and_extract():
     steps = session.get("extraction_steps") or []
+
     if request.method == "POST":
-        # collect docs as before
-        docs = request.files.getlist("docs")
+        # 1) Gather any top‑level uploads
+        raw_docs = request.files.getlist("docs")
         documents = [
-            {"file_bytes": f.read(), "format": f.filename.rsplit(".",1)[1],
-             "name": os.path.splitext(f.filename)[0]}
-            for f in docs if f and allowed_file(f.filename)
+            {
+              "file_bytes": f.read(),
+              "format": f.filename.rsplit(".", 1)[1].lower(),
+              "name":    os.path.splitext(f.filename)[0]
+            }
+            for f in raw_docs
+            if f and allowed_file(f.filename)
         ]
 
-        # gather sub‑step flags & docs but DON'T run them yet:
+        # 2) Check sub‑step flags and their helper docs
         do_refresh = request.form.get("calculate_refresh") == "yes"
         refresh_docs = [
-            {"file_bytes": f.read(), "format": f.filename.rsplit(".",1)[1],
-             "name": os.path.splitext(f.filename)[0]}
+            {
+              "file_bytes": f.read(),
+              "format": f.filename.rsplit(".", 1)[1].lower(),
+              "name":    os.path.splitext(f.filename)[0]
+            }
             for f in request.files.getlist("refresh_docs")
             if f and allowed_file(f.filename)
         ]
 
         do_dmc = request.form.get("calculate_dmc") == "yes"
         dmc_docs = [
-            {"file_bytes": f.read(), "format": f.filename.rsplit(".",1)[1],
-             "name": os.path.splitext(f.filename)[0]}
+            {
+              "file_bytes": f.read(),
+              "format": f.filename.rsplit(".", 1)[1].lower(),
+              "name":    os.path.splitext(f.filename)[0]
+            }
             for f in request.files.getlist("dmc_docs")
             if f and allowed_file(f.filename)
         ]
 
-        # **enqueue** the full job
+        # —————————————————————————————
+        # A) SAVE‑CHANGES ONLY (no docs, no flags)
+        # —————————————————————————————
+        if not documents and not do_refresh and not do_dmc:
+            # Merge every non‑control form field into session["extracted"]
+            data = session.get("extracted", {}).copy()
+            for key, val in request.form.items():
+                if key not in (
+                    "calculate_refresh",
+                    "calculate_dmc",
+                    "refresh_file_opt_in",
+                    "dmc_file_opt_in"
+                ):
+                    data[key] = val
+            session["extracted"] = data
+
+            # Re‑render results table with blanks for any -1
+            display = {
+              k: ("" if v in (-1, "-1") else v)
+              for k, v in data.items()
+            }
+            return render_template("results.html", results=display)
+
+        # —————————————————————————————
+        # B) ENQUEUE BACKGROUND EXTRACTION
+        # —————————————————————————————
+        # At least one of: documents, do_refresh, do_dmc
         job = rq_queue.enqueue(
             tasks.run_extraction,
             steps,
             documents,
             (do_refresh, refresh_docs),
             (do_dmc,    dmc_docs),
-            job_timeout=600  # up to 10 minutes
+            job_timeout=600
         )
-
-        # store job_id in session so we can poll
         session["job_id"] = job.get_id()
-
-        # render a “please wait” page that polls /status
         return render_template("waiting.html", job_id=job.get_id())
 
-    # GET …
+    # GET → show upload form
     return render_template("upload.html")
+
 
 
 @app.route("/status/<job_id>")
