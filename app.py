@@ -8,6 +8,16 @@ from redis import Redis
 from rq import Queue
 import json
 import tasks
+import ssl
+import certifi
+
+def make_redis_conn():
+    return Redis.from_url(
+        os.environ["REDIS_URL"],
+        ssl=True,
+        ssl_cert_reqs=ssl.CERT_REQUIRED,
+        ssl_ca_certs=certifi.where(),
+    )
 
 
 app = Flask(__name__)
@@ -28,11 +38,7 @@ SHEETS_MAP = {
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.join(BASE_DIR, "templates_xlsx", "template_full.xlsx")
 
-redis_conn = Redis.from_url(
-    os.environ["REDIS_URL"],
-    ssl=True,
-    ssl_cert_reqs=None,    # turn off cert validation
-)
+redis_conn = make_redis_conn()
 rq_queue  = Queue("default", connection=redis_conn)
 
 def allowed_file(filename):

@@ -8,9 +8,19 @@ from extractors import (
     calculate_refresh, calculate_dmc
 )
 from flask import current_app
+import ssl
+import certify
+
+def make_redis_conn():
+    return Redis.from_url(
+        os.environ["REDIS_URL"],
+        ssl=True,
+        ssl_cert_reqs=ssl.CERT_REQUIRED,
+        ssl_ca_certs=certifi.where(),
+    )
 
 # Connect to the same Redis:
-redis_conn = Redis.from_url(os.environ["REDIS_URL"])
+redis_conn = make_redis_conn()
 QUEUE_NAME = "default"
 
 def run_extraction(steps, documents, refresh_opts, dmc_opts):
