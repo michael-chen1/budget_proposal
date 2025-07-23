@@ -6,29 +6,28 @@ import certifi
 from redis import Redis
 from rq.worker import Worker
 from rq.queue import Queue
-from rq.connection import Connection
+from rq.connections import Connection
 
-# Queues to listen on
+# Which queues to listen on
 listen = ["default"]
 
 def make_redis_conn():
     """
-    Build a Redis connection that skips certificate verification
-    (Heroku’s Redis uses a self‑signed cert).
+    Build a Redis connection that skips cert validation,
+    because Heroku Redis uses a self‑signed certificate.
     """
     return Redis.from_url(
-        os.environ["REDIS_URL"],    # should be rediss://… on Heroku
-        ssl_cert_reqs=None,         # disable SSL certificate validation
-        retry_on_timeout=True,      # retry commands if Redis is busy
+        os.environ["REDIS_URL"],  # Heroku puts a rediss:// URL here
+        ssl_cert_reqs=None,       # disable certificate checking
+        retry_on_timeout=True,    # retry if Redis is busy
     )
 
 if __name__ == "__main__":
-    # Create the Redis connection
+    # Establish our Redis connection
     redis_conn = make_redis_conn()
-
-    # Bind our connection into RQ’s context
+    # Bind that connection for our Worker
     with Connection(redis_conn):
-        # Instantiate a worker to process jobs from the named queues
+        # Create a Worker that listens on the named queues
         worker = Worker(list(map(Queue, listen)))
-        # Start the work loop
+        # Start processing jobs
         worker.work()
