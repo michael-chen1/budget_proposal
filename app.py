@@ -28,7 +28,11 @@ SHEETS_MAP = {
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.join(BASE_DIR, "templates_xlsx", "template_full.xlsx")
 
-redis_conn = Redis.from_url(os.environ["REDIS_URL"])
+redis_conn = Redis.from_url(
+    os.environ["REDIS_URL"],
+    ssl=True,
+    ssl_cert_reqs=None,    # turn off cert validation
+)
 rq_queue  = Queue("default", connection=redis_conn)
 
 def allowed_file(filename):
