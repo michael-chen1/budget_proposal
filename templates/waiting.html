@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+  <script>
+    function poll() {
+      fetch("/status/{{ job_id }}")
+        .then(r => r.json())
+        .then(js => {
+          if (js.status === "finished") {
+            window.location = "/results";
+          } else if (js.status === "failed") {
+            document.getElementById("msg")
+              .textContent = "Extraction failed: " + js.error;
+          } else {
+            setTimeout(poll, 1000);
+          }
+        })
+        .catch(_=>setTimeout(poll,1000));
+    }
+    window.onload = poll;
+  </script>
+</head>
+<body>
+  <h1>Please wait, extraction in progress…</h1>
+  <p id="msg">Queued…</p>
+</body>
+</html>

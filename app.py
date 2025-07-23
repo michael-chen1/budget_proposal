@@ -1,9 +1,13 @@
 import os
-from flask import Flask, request, render_template, session, send_file, redirect, url_for
+from flask import Flask, request, render_template, session, send_file, redirect, url_for, jsonify
 from extractors import get_data_biostats, calculate_dmc, calculate_refresh, get_data_dm, get_data_pm, get_data_conform
 from excel_utils import populate_template
 from openpyxl import Workbook, load_workbook
 import tempfile
+from redis import Redis
+from rq import Queue
+import json
+import tasks
 
 
 app = Flask(__name__)
@@ -24,6 +28,9 @@ SHEETS_MAP = {
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.join(BASE_DIR, "templates_xlsx", "template_full.xlsx")
 
+redis_conn = Redis.from_url(os.environ["REDIS_URL"])
+rq_queue  = Queue("default", connection=redis_conn)
+
 def allowed_file(filename):
     return (
         "." in filename
@@ -43,113 +50,75 @@ def select_types():
     return render_template("select_types.html")
 
 
-
 @app.route("/upload", methods=["GET", "POST"])
 def upload_and_extract():
-    steps = session.get("extraction_steps")
-    if not steps:
-        return redirect(url_for("select_types"))
-
+    steps = session.get("extraction_steps") or []
     if request.method == "POST":
+        # collect docs as before
         docs = request.files.getlist("docs")
+        documents = [
+            {"file_bytes": f.read(), "format": f.filename.rsplit(".",1)[1],
+             "name": os.path.splitext(f.filename)[0]}
+            for f in docs if f and allowed_file(f.filename)
+        ]
 
-        # ——— 1) INITIAL UPLOAD & CORE EXTRACTION ———
-        # Only if there are real uploads in `docs` and no sub-step flags
-        if docs and any(f.filename for f in docs) \
-           and "calculate_refresh" not in request.form \
-           and "calculate_dmc" not in request.form:
+        # gather sub‑step flags & docs but DON'T run them yet:
+        do_refresh = request.form.get("calculate_refresh") == "yes"
+        refresh_docs = [
+            {"file_bytes": f.read(), "format": f.filename.rsplit(".",1)[1],
+             "name": os.path.splitext(f.filename)[0]}
+            for f in request.files.getlist("refresh_docs")
+            if f and allowed_file(f.filename)
+        ]
 
-            # build documents list
-            documents = []
-            for f in docs:
-                if not allowed_file(f.filename):
-                    return render_template("upload.html",
-                                           error="Only PDF or DOCX allowed")
-                fmt  = f.filename.rsplit(".",1)[1].lower()
-                name = os.path.splitext(f.filename)[0]
-                documents.append({
-                    "file_bytes": f.read(),
-                    "format":    fmt,
-                    "name":      name
-                })
+        do_dmc = request.form.get("calculate_dmc") == "yes"
+        dmc_docs = [
+            {"file_bytes": f.read(), "format": f.filename.rsplit(".",1)[1],
+             "name": os.path.splitext(f.filename)[0]}
+            for f in request.files.getlist("dmc_docs")
+            if f and allowed_file(f.filename)
+        ]
 
-            # run the selected core extractors
-            data = {}
-            if "conform" in steps:            data.update(get_data_conform(documents))
-            if "project_management" in steps: data.update(get_data_pm(documents))
-            if "data_management" in steps:   data.update(get_data_dm(documents))
-            if "biostats" in steps:           data.update(get_data_biostats(documents))
+        # **enqueue** the full job
+        job = rq_queue.enqueue(
+            tasks.run_extraction,
+            steps,
+            documents,
+            (do_refresh, refresh_docs),
+            (do_dmc,    dmc_docs),
+            job_timeout=600  # up to 10 minutes
+        )
 
-            # save & render
-            session["extracted"] = data
-            display = {
-                k: ("" if v == -1 or v == "-1" else v)
-                for k, v in data.items()
-            }
-            return render_template("results.html", results=display)
+        # store job_id in session so we can poll
+        session["job_id"] = job.get_id()
 
-        # ——— 2) ANY OTHER POST ———
-        #  2a) First, merge manual edits (Save Changes) into session
-        updated = session.get("extracted", {}).copy()
-        # take every form field except our control flags and file‑opt flags
-        for key, val in request.form.items():
-            if key not in ("calculate_refresh","calculate_dmc",
-                           "refresh_file_opt_in","dmc_file_opt_in"):
-                updated[key] = val
-        session["extracted"] = updated
-        data = updated
+        # render a “please wait” page that polls /status
+        return render_template("waiting.html", job_id=job.get_id())
 
-        #  2b) Then run Refresh if requested
-        if "biostats" in steps and request.form.get("calculate_refresh"):
-            do_refresh   = request.form["calculate_refresh"] == "yes"
-            refresh_docs = []
-            if request.form.get("refresh_file_opt_in") == "yes":
-                for f in request.files.getlist("refresh_docs"):
-                    if f and allowed_file(f.filename):
-                        fmt  = f.filename.rsplit(".",1)[1].lower()
-                        name = os.path.splitext(f.filename)[0]
-                        refresh_docs.append({
-                            "file_bytes": f.read(),
-                            "format":    fmt,
-                            "name":      name
-                        })
-            extra = calculate_refresh(data, refresh_docs, do_refresh)
-            data.update(extra)
-            session["extracted"] = data
-
-        #  2c) Then run DMC if requested
-        if "biostats" in steps and request.form.get("calculate_dmc"):
-            do_dmc   = request.form["calculate_dmc"] == "yes"
-            dmc_docs = []
-            if request.form.get("dmc_file_opt_in") == "yes":
-                for f in request.files.getlist("dmc_docs"):
-                    if f and allowed_file(f.filename):
-                        fmt  = f.filename.rsplit(".",1)[1].lower()
-                        name = os.path.splitext(f.filename)[0]
-                        dmc_docs.append({
-                            "file_bytes": f.read(),
-                            "format":    fmt,
-                            "name":      name
-                        })
-            extra = calculate_dmc(data, dmc_docs, do_dmc)
-            data.update(extra)
-            session["extracted"] = data
-
-        #  3) Finally, render with all updates
-        display = {
-                k: ("" if v == -1 or v == "-1" else v)
-                for k, v in data.items()
-        }
-        return render_template("results.html", results=display)
-
-    # GET → show upload form
+    # GET …
     return render_template("upload.html")
 
 
+@app.route("/status/<job_id>")
+def job_status(job_id):
+    job = rq_queue.fetch_job(job_id)
+    if not job:
+        return jsonify({"status": "unknown"}), 404
 
+    if job.is_finished:
+        # save the result into session for later
+        session["extracted"] = job.result
+        return jsonify({"status": "finished"})
+    elif job.is_failed:
+        return jsonify({"status": "failed", "error": str(job.exc_info)}), 500
+    else:
+        return jsonify({"status": job.get_status()})  # queued, started, etc.
 
-
-
+@app.route("/results")
+def show_results():
+    data = session.get("extracted", {})
+    display = {k: ("" if v in (-1,"-1") else v) for k,v in data.items()}
+    return render_template("results.html", results=display)
 
 @app.route("/export", methods=["POST"])
 def export():
