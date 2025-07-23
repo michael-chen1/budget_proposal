@@ -3,6 +3,7 @@ from botocore.exceptions import ClientError
 import json
 from typing import List, Dict, Any
 import math
+import os
 
 client = boto3.client("bedrock-runtime", region_name="us-east-1", aws_access_key_id = os.environ["AWS_KEY"], aws_secret_access_key = os.environ["AWS_SECRET"])
 model_id = "anthropic.claude-sonnet-4-20250514-v1:0"
