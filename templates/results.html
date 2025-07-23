@@ -9,7 +9,12 @@
   <body>
     <h1>Extracted Data (you can edit)</h1>
 
-     <form method="post" id="resultsForm">
+     <form
+ 	 id="resultsForm"
+	  method="post"
+ 	 action="{{ url_for('upload_and_extract') }}"
+	  enctype="multipart/form-data"
+	>
       <!-- if biostats was selected, show the Refresh sub‑step -->
       {% if 'biostats' in session.extraction_steps %}
         <hr>
