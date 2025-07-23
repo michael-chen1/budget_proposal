@@ -37,6 +37,9 @@ def run_extraction(steps, documents, refresh_opts, dmc_opts):
     if "biostats" in steps:
         data.update(get_data_biostats(documents))
 
+    return data
+
+def run_substeps(steps, documents, refresh_opts, dmc_opts):
     # if refresh_opts is a tuple (do_refresh, docs[])
     do_refresh, refresh_docs = refresh_opts
     r = True
@@ -53,5 +56,3 @@ def run_extraction(steps, documents, refresh_opts, dmc_opts):
         d = False
     if "biostats" in steps and do_dmc:
         data.update(calculate_dmc(data, dmc_docs, d))
-
-    return data

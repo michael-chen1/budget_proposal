@@ -121,21 +121,32 @@ def upload_and_extract():
               for k, v in data.items()
             }
             return render_template("results.html", results=display)
-
+        
+        if session.get("base_done") and (do_refresh or do_dmc):
+            job = rq_queue.enqueue(
+                tasks.run_substeps,   # a new helper that only handles refresh+DMC
+                session["extracted"],
+                (do_refresh, refresh_docs),
+                (do_dmc,    dmc_docs),
+            )
+            session["job_id"] = job.id
+            return render_template("waiting.html", job_id=job.id)
+        
         # —————————————————————————————
         # B) ENQUEUE BACKGROUND EXTRACTION
         # —————————————————————————————
         # At least one of: documents, do_refresh, do_dmc
+        session.pop("base_done", None)
         job = rq_queue.enqueue(
             tasks.run_extraction,
             steps,
             documents,
             (do_refresh, refresh_docs),
             (do_dmc,    dmc_docs),
-            job_timeout=600
         )
-        session["job_id"] = job.get_id()
-        return render_template("waiting.html", job_id=job.get_id())
+        session["job_id"] = job.id
+        session["base_done"] = True
+        return render_template("waiting.html", job_id=job.id)
 
     # GET → show upload form
     return render_template("upload.html")
