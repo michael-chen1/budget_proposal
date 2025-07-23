@@ -21,7 +21,8 @@ SHEETS_MAP = {
     
 }
 
-TEMPLATE_PATH = r"C:\Users\MichaelChen\AppData\Local\Programs\Python\Python312\budget_proposal\templates_xlsx\template_full.xlsx"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE_PATH = os.path.join(BASE_DIR, "templates_xlsx", "template_full.xlsx")
 
 def allowed_file(filename):
     return (

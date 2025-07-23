@@ -9,9 +9,6 @@ client = boto3.client("bedrock-runtime", region_name="us-east-1", aws_access_key
 model_id = "anthropic.claude-sonnet-4-20250514-v1:0"
 inference_profile_arn = "arn:aws:bedrock:us-east-1:730335504220:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
 
-with open(r"C:\Users\MichaelChen\Downloads\OP-1250-301_Protocol v02_01Apr2024_Signed.pdf","rb") as file1, open(r"C:\Users\MichaelChen\Downloads\Corcept Relacorilant Momentum Request for Proposal_23MAY2025_EDETEK.docx", "rb") as file2:
-    doc1 = file1.read()
-    doc2 = file2.read()
     
 def extract_dict(response_text: str):
     response_text = response_text.replace(": True", ": true") \
