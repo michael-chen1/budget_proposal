@@ -124,7 +124,8 @@ def upload_and_extract():
         
         if session.get("base_done") and (do_refresh or do_dmc):
             job = rq_queue.enqueue(
-                tasks.run_substeps,   # a new helper that only handles refresh+DMC
+                tasks.run_substeps,
+                steps, 
                 session["extracted"],
                 (do_refresh, refresh_docs),
                 (do_dmc,    dmc_docs),
