@@ -1,8 +1,9 @@
-Flask==2.3.2
+Flask
 boto3==1.34.132
-openpyxl==3.1.2
-gunicorn==20.1.0
+openpyxl
+gunicorn
 redis
 rq
 certifi
+python-dotenv
 

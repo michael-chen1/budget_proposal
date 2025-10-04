@@ -1,5 +1,9 @@
 # tasks.py
 import os, json
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from redis import Redis
 from rq import get_current_job
 from extractors import (
@@ -14,8 +18,6 @@ import certifi
 def make_redis_conn():
     return Redis.from_url(
         os.environ["REDIS_URL"],
-        ssl_cert_reqs = None,
-        ssl_ca_certs=certifi.where(),
     )
 
 # Connect to the same Redis:
@@ -28,6 +30,7 @@ def run_extraction(steps, documents, refresh_opts, dmc_opts):
     Called in a background RQ worker.
     """
     data = {}
+    print(2)
     if "conform" in steps:
         data.update(get_data_conform(documents))
     if "project_management" in steps:

@@ -1,3 +1,7 @@
+from dotenv import load_dotenv, find_dotenv
+
+load_dotenv(find_dotenv())
+
 import boto3
 from botocore.exceptions import ClientError
 import json
@@ -5,12 +9,22 @@ from typing import List, Dict, Any
 import math
 import os
 
-client = boto3.client("bedrock-runtime", region_name="us-east-1", aws_access_key_id = os.environ["AWS_KEY"], aws_secret_access_key = os.environ["AWS_SECRET"])
+
+def get_bedrock_client():
+    return boto3.client(
+        "bedrock-runtime",
+        region_name    = os.environ.get("AWS_REGION", "us-east-1"),
+        aws_access_key_id     = os.environ["AWS_KEY"],
+        aws_secret_access_key = os.environ["AWS_SECRET"],
+    )
+
+
+client = get_bedrock_client()
 model_id = "anthropic.claude-sonnet-4-20250514-v1:0"
 inference_profile_arn = "arn:aws:bedrock:us-east-1:730335504220:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
 
     
-def extract_dict(response_text: str):
+def extract_dict(response_text):
     response_text = response_text.replace(": True", ": true") \
                                  .replace(": False", ": false")
     start = response_text.find('{')
@@ -49,7 +63,7 @@ def _build_conversation(prompt: str, documents: List[Dict[str, Any]]) -> List[Di
     }]
 
 
-def get_provided_data(documents: List[Dict[str, Any]]) -> dict:
+def get_provided_data(documents):
     prompt = """You are an expert in the clinical data management industry, trained to extract study information from provided documents.
 You will receive a study protocol along with other supporting document(s), and a list of variables with brief descriptions that you need to extract from the documents.
 Below are the variables to extract:
@@ -79,8 +93,6 @@ It is imperative that the durations are in months. Make sure to convert them to 
     except (ClientError, Exception) as e:
         raise RuntimeError(f"Failed to invoke model: {e}")
 
-##    print(response_text)
-    print(response_text)
     data = extract_dict(response_text)
     return data
 
@@ -223,7 +235,7 @@ def get_data_biostats(documents):
         "patient_profile": -1,
         "num_meetings": -1
         }
-
+    print(6)
     data1 = get_provided_data(documents)
     data2 = get_assumed_data(documents)
     

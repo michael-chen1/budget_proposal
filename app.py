@@ -1,50 +1,73 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
 from flask import Flask, request, render_template, session, send_file, redirect, url_for, jsonify
 from extractors import get_data_biostats, calculate_dmc, calculate_refresh, get_data_dm, get_data_pm, get_data_conform
 from excel_utils import populate_template
 from openpyxl import Workbook, load_workbook
 import tempfile
-from redis import Redis
-from rq import Queue
 import json
-import tasks
-import ssl
-import certifi
-
-def make_redis_conn():
-    return Redis.from_url(
-        os.environ["REDIS_URL"],
-        ssl_cert_reqs = None,
-        ssl_ca_certs=certifi.where(),
-    )
 
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("flask_key", "edetek123")
+app.secret_key = os.environ.get("FLASK_KEY", "edetek123")
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
 
 ALLOWED_EXTENSIONS = {"pdf", "docx"}
 
-# map each top‑level step to its Excel template
-SHEETS_MAP = {
-    "biostats":        ["Study Information", "Biostatistics and Programming"],
-    "data_management": ["Study Information", "Clinical Data Management"],
-    "project_management": ["Study Information", "Project Management"],
-    "conform": ["Study Information", "CONFORM Informatics"],
-    
-}
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.join(BASE_DIR, "templates_xlsx", "template_full.xlsx")
 
-redis_conn = make_redis_conn()
-rq_queue  = Queue("default", connection=redis_conn)
+SHEETS_MAP = {"biostats": ["Study Information", "Biostatistics and Programming"],
+              "data_management": ["Study Information", "Clinical Data Management"],
+              "project_management": ["Study Information", "Project Management"],
+              "conform": ["Study Information", "CONFORM Informatics"],
+              }
+
 
 def allowed_file(filename):
     return (
         "." in filename
         and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
     )
+
+def run_extraction(steps, documents, refresh_opts, dmc_opts):
+
+    data = {}
+    print(2)
+    if "conform" in steps:
+        data.update(get_data_conform(documents))
+    if "project_management" in steps:
+        data.update(get_data_pm(documents))
+    if "data_management" in steps:
+        data.update(get_data_dm(documents))
+    if "biostats" in steps:
+        data.update(get_data_biostats(documents))
+
+    return data
+
+def run_substeps(steps, data, refresh_opts, dmc_opts):
+    # if refresh_opts is a tuple (do_refresh, docs[])
+    do_refresh, refresh_docs = refresh_opts
+    r = True
+    if not refresh_docs:
+        r = False        
+        
+    if "biostats" in steps and do_refresh:
+        data.update(calculate_refresh(data, refresh_docs, r))
+
+    # same for DMC:
+    do_dmc, dmc_docs = dmc_opts
+    d = True
+    if not dmc_docs:
+        d = False
+    if "biostats" in steps and do_dmc:
+        data.update(calculate_dmc(data, dmc_docs, d))
+
+    return data
+
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -123,57 +146,33 @@ def upload_and_extract():
             return render_template("results.html", results=display)
         
         if session.get("base_done") and (do_refresh or do_dmc):
-            job = rq_queue.enqueue(
-                tasks.run_substeps,
-                steps, 
-                session["extracted"],
+            data = session.get("extracted", {}).copy()
+            extract = run_substeps(
+                steps,
+                data,
                 (do_refresh, refresh_docs),
-                (do_dmc,    dmc_docs),
+                (do_dmc,     dmc_docs),
             )
-            session["job_id"] = job.id
-            return render_template("waiting.html", job_id=job.id)
+            session["extracted"] = extract
+
+
+            display = {k: ("" if v in (-1, "-1") else v) for k, v in data.items()}
+            return render_template("results.html", results=display)
+
         
-        # —————————————————————————————
-        # B) ENQUEUE BACKGROUND EXTRACTION
-        # —————————————————————————————
-        # At least one of: documents, do_refresh, do_dmc
+        print(8)
         session.pop("base_done", None)
-        job = rq_queue.enqueue(
-            tasks.run_extraction,
-            steps,
-            documents,
-            (do_refresh, refresh_docs),
-            (do_dmc,    dmc_docs),
-        )
-        session["job_id"] = job.id
+        data = run_extraction(steps, documents, (do_refresh, refresh_docs), (do_dmc, dmc_docs))  
         session["base_done"] = True
-        return render_template("waiting.html", job_id=job.id)
+        session["extracted"] = data
+        print(1)
+        display = {k: ("" if v in (-1, "-1") else v) for k, v in data.items()}
+        return render_template("results.html", results=display)
 
     # GET → show upload form
     return render_template("upload.html")
 
 
-
-@app.route("/status/<job_id>")
-def job_status(job_id):
-    job = rq_queue.fetch_job(job_id)
-    if not job:
-        return jsonify({"status": "unknown"}), 404
-
-    if job.is_finished:
-        # save the result into session for later
-        session["extracted"] = job.result
-        return jsonify({"status": "finished"})
-    elif job.is_failed:
-        return jsonify({"status": "failed", "error": str(job.exc_info)}), 500
-    else:
-        return jsonify({"status": job.get_status()})  # queued, started, etc.
-
-@app.route("/results")
-def show_results():
-    data = session.get("extracted", {})
-    display = {k: ("" if v in (-1,"-1") else v) for k,v in data.items()}
-    return render_template("results.html", results=display)
 
 @app.route("/export", methods=["POST"])
 def export():
@@ -229,5 +228,4 @@ def export():
     return resp
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)), debug=True)
