@@ -17,6 +17,26 @@ app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
 ALLOWED_EXTENSIONS = {"pdf", "docx"}
 
 
+# Short descriptions for each extracted field. Any field not listed here will
+# simply render with a blank description cell in the results table.
+FIELD_DESCRIPTIONS = {
+    "Study Title": "Official name of the study or protocol.",
+    "Therapeutic Area": "Primary therapeutic area or indication for the study.",
+    "Planned Enrollment": "Total number of participants expected to enroll.",
+    "Study Start Date": "Projected first subject in date.",
+    "Study End Date": "Projected last subject out or database lock date.",
+}
+
+# Mathematical or business rules used to derive each calculated field.
+# Fields without entries here will render with an em dash, indicating that the
+# value came directly from the source materials without additional math.
+FIELD_FORMULAS = {
+    "Planned Enrollment": "Screening Target − Expected Screen Failures",
+    "Study Start Date": "Earliest site activation date",
+    "Study End Date": "Study Start Date + Planned Study Duration",
+}
+
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.join(BASE_DIR, "templates_xlsx", "template_full.xlsx")
 
@@ -143,7 +163,12 @@ def upload_and_extract():
               k: ("" if v in (-1, "-1") else v)
               for k, v in data.items()
             }
-            return render_template("results.html", results=display)
+            return render_template(
+                "results.html",
+                results=display,
+                descriptions=FIELD_DESCRIPTIONS,
+                formulas=FIELD_FORMULAS,
+            )
         
         if session.get("base_done") and (do_refresh or do_dmc):
             data = session.get("extracted", {}).copy()
@@ -157,7 +182,12 @@ def upload_and_extract():
 
 
             display = {k: ("" if v in (-1, "-1") else v) for k, v in data.items()}
-            return render_template("results.html", results=display)
+            return render_template(
+                "results.html",
+                results=display,
+                descriptions=FIELD_DESCRIPTIONS,
+                formulas=FIELD_FORMULAS,
+            )
 
         
         print(8)
@@ -167,7 +197,12 @@ def upload_and_extract():
         session["extracted"] = data
         print(1)
         display = {k: ("" if v in (-1, "-1") else v) for k, v in data.items()}
-        return render_template("results.html", results=display)
+        return render_template(
+            "results.html",
+            results=display,
+            descriptions=FIELD_DESCRIPTIONS,
+            formulas=FIELD_FORMULAS,
+        )
 
     # GET → show upload form
     return render_template("upload.html")
