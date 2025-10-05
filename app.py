@@ -110,7 +110,7 @@ FIELD_DESCRIPTIONS = {
     "total_dur": "Total duration of all phases of study (months)",
     "num_visits": "Number of visits per subject",
     "avg_unscheduled_vists": "Average number of unscheduled visits per subject",
-    "withdrawal_rate": "Withdrawal rate of enrolled subjects",
+    "dropout_rate": "Withdrawal rate of enrolled subjects",
 
 
 }
@@ -130,7 +130,7 @@ FIELD_FORMULAS = {
     "num_screen_fail": "num_screened * screen_failure_rate",
     "num_unique_terms_aemh": "num_subj * 10 * 0.05",
     "num_unique_terms_cm": "num_subj * 8 * 0.3",
-    "num_withdrawn": "num_subj * withdrawal_rate",
+    "num_withdrawn": "num_subj * dropout_rate",
     "sdtm_fr": "subj_dur * 3",
     "num_dmc_meet": "ceil(subj_dur / 6)",
     "tlf_final_fr": "subj_dur",
