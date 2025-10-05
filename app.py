@@ -133,6 +133,7 @@ FIELD_FORMULAS = {
     "num_withdrawn": "num_subj * withdrawal_rate",
     "sdtm_fr": "subj_dur * 3",
     "num_dmc_meet": "ceil(subj_dur / 6)",
+    "tlf_final_fr": "subj_dur",
     "tlf_dmc_fr": "num_dmc_meet",
     "tlf_dmc_repeat_figures": "floor(tlf_final_repeat_figures * 0.6)",
     "tlf_dmc_repeat_listings": "floor(tlf_final_repeat_listings * 0.6)",
