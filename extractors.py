@@ -75,6 +75,8 @@ to_extract = {
     enroll_dur: specified duration of enrollment in months,
     subj_dur: specified duration of subject participation/treatment in months,
     total_dur: specified duration of the whole study in months,
+    num_visits: specified number of visits per patient,
+    avg_unscheduled_visits: estimated average number of unscheduled vists per patient,
     dmc/ia: whether or not this study involves the use of a data monitoring committee (dmc) or interim analysis (ia) (output as a boolean true/false)
 
 }
@@ -156,12 +158,6 @@ For Phase 3 study, 120-200 tlfs (35 unique tables 50 repeat tables 40 unique lis
     print(response_text)
     data = extract_dict(response_text)
     data.update(
-        tlf_ia_unique_tables = data["tlf_unique_tables"],
-        tlf_ia_repeat_tables = data["tlf_repeat_tables"],
-        tlf_ia_unique_figures = data["tlf_unique_figures"],
-        tlf_ia_repeat_figures = data["tlf_repeat_figures"],
-        tlf_ia_unique_listings = data["tlf_unique_listings"],
-        tlf_ia_repeat_listings = data["tlf_repeat_listings"],
         tlf_final_unique_tables = data["tlf_unique_tables"],
         tlf_final_repeat_tables = data["tlf_repeat_tables"],
         tlf_final_unique_figures = data["tlf_unique_figures"],
@@ -180,11 +176,15 @@ def get_data_biostats(documents):
         "dmc/ia": False,
         "num_countries": -1,
         "num_sites": -1,
+        "screen_failure_rate": 0.2,
+        "dropout_rate": -1,
         "num_screened_subj": -1,
         "num_screen_fail": -1,
         "num_subj": -1,
         "num_complete": -1,
         "num_withdrawn": -1,
+        "num_visits": -1,
+        "avg_unscheduled_visits": -1,
         "start_dur": -1,
         "enroll_dur": -1,
         "subj_dur": -1,
@@ -194,10 +194,12 @@ def get_data_biostats(documents):
         "sdtm_tdd": 5, #always 5
         "sdtm_sd": -1,
         "sdtm_dmc_fr": -1,
+        "sdtm_ia_fr": -1,
         "sdtm_fr":  -1,
         "adam_simp": -1,
         "adam_compl": -1,
         "adam_dmc_fr": -1,
+        "adam_ia_fr": -1,
         "adam_fr": -1,
         "tlf_dmc_unique_tables": -1,
         "tlf_dmc_repeat_tables": -1,
@@ -305,7 +307,7 @@ def calculate_dmc(data, documents, use_files):
 
 
     data["dsur_report_tables"]   = 10
-    data["dsur_report_listings"] = 7
+    data["dsur_report_datasets"] = 7
     data["dsur_years"] = math.ceil(td/12.0)
 
     if use_files:
@@ -400,11 +402,11 @@ def calculate_refresh(data, documents, use_files):
         refresh_data = extract_dict(response_text)
         
         if refresh_data["sdtm_fr"] == -1:
-            sdtm_fr = sd
+            sdtm_fr = sd * 1.5
         else:
             sdtm_fr = refresh_data["sdtm_fr"]
         if refresh_data["adam_fr"] == -1:
-            adam_fr = sd
+            adam_fr = sd * 3
         else:
             adam_fr = refresh_data["adam_fr"]
         if refresh_data["tlf_final_fr"] == -1:
@@ -415,8 +417,8 @@ def calculate_refresh(data, documents, use_files):
 
 
     else:
-        sdtm_fr = sd
-        adam_fr = sd
+        sdtm_fr = sd * 1.5
+        adam_fr = sd * 3
         tlf_fr = sd
 
     data["sdtm_fr"] = sdtm_fr
@@ -432,12 +434,14 @@ def get_data_dm(documents):
         "num_countries": -1,
         "num_sites": -1,
         "screen_failure_rate": 0.2, #change if necessary
-        "dropout_rate": 0.1, #change if necessary
+        "dropout_rate": 0.15, #change if necessary
         "num_screened_subj": -1,
         "num_screen_fail": -1,
         "num_subj": -1,
         "num_complete": -1,
         "num_withdrawn": -1,
+        "num_visits": -1,
+        "avg_unscheduled_visits": -1,
         "start_dur": -1,
         "enroll_dur": -1,
         "subj_dur": -1,
@@ -446,6 +450,8 @@ def get_data_dm(documents):
         "total_dur": -1,
         "data_review_listings": 50, #assumed
         "protocol_deviation_check": 40, #assumed
+        "crf_pages_per_visit": 10, #assumed
+        "crf_withdrawn_multiplier": 0.5, #assumed
         "crf_pages_screen_fail": 5, #assumed
         "crf_pages_complete": 300, #assumed
         "crf_pages_withdrawn": 150, #assumed
@@ -468,7 +474,7 @@ def get_data_dm(documents):
         }
 
     data1 = get_provided_data(documents)
-    sf = data.get("screen_failue_rate", 0)
+    sf = data.get("screen_failure_rate", 0)
     dr = data.get("dropout_rate", 0)
     if data1["num_subj"] == -1:
         data1["num_subj"] = 100
@@ -482,7 +488,8 @@ def get_data_dm(documents):
     if data["total_dur"] == -1:
         data["total_dur"] = max(data["enroll_dur"] + data["subj_dur"], data["enroll_dur"], data["subj_dur"])
 
-    data["crf_pages_total"] = data["num_screen_fail"] * data["crf_pages_screen_fail"] + data["num_complete"] * data["crf_pages_complete"] + data["num_withdrawn"] * data["crf_pages_withdrawn"]
+    data["crf_pages_complete"] = data["num_visits"] * data["crf_pages_per_visit"]
+    data["crf_pages_total"] = data["num_screen_fail"] * data["crf_pages_screen_fail"] + data["num_complete"] * (data["crf_pages_complete"] + data["avg_unscheduled_visit"] * data["crf_pages_per_visit"]) + data["num_withdrawn"] * data["crf_pages_withdrawn"]
     data["manual_queries_total"] = data["num_complete"] * data["manual_queries_complete"] + data["num_withdrawn"] * data["manual_queries_withdrawn"]
     data["auto_queries_total"] = data["num_screen_fail"] * data["auto_queries_screen_fail"] + data["num_complete"] * data["auto_queries_complete"] + data["num_withdrawn"] * data["auto_queries_withdrawn"]
     data["crf_pages_total"] = int(data["crf_pages_total"])
