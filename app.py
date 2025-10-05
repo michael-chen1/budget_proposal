@@ -106,6 +106,9 @@ FIELD_DESCRIPTIONS = {
     "tlf_unique_listings": "Number of unique figures needed",
     "tlf_unique_tables": "Number of unique figures needed",
     "total_dur": "Total duration of all phases of study (months)",
+    "num_visits": "Number of visits per subject",
+    "avg_unscheduled_vists": "Average number of unscheduled visits per subject",
+    "withdrawal_rate": "Withdrawal rate of enrolled subjects",
 
 
 }
@@ -115,9 +118,18 @@ FIELD_DESCRIPTIONS = {
 # Fields without entries here will render with an em dash, indicating that the
 # value came directly from the source materials without additional math.
 FIELD_FORMULAS = {
-    "Planned Enrollment": "Screening Target − Expected Screen Failures",
-    "Study Start Date": "Earliest site activation date",
-    "Study End Date": "Study Start Date + Planned Study Duration",
+    "adam_fr": "subj_dur * 1.5",
+    "crf_pages_complete": "num_vists * 10",
+    "crf_pages_total": "num_complete * (crf_pages_complete + avg_unscheduled_visits * 10) + num_withdrawn * crf_pages_withdrawn",
+    "crf_pages_withdrawn": "crf_pages_complete / 2",
+    "dsur_years": "floor(total_dur / 12)",
+    "investigator_years": "floor(total_dur / 12)",
+    "num_complete": "num_subj * (1 - withdrawal_rate)",
+    "num_screen_fail": "num_screened * screen_failure_rate",
+    "num_unique_terms_aemh": "num_subj * 10 * 0.05",
+    "num_unique_terms_cm": "num_subj * 8 * 0.3",
+    "num_withdrawn": "num_subj * withdrawal_rate",
+    "sdtm_fr": "subj_dur * 3",
 }
 
 
