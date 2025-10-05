@@ -31,6 +31,7 @@ FIELD_DESCRIPTIONS = {
     "auto_queries_total": "Total number of auto queries performed",
     "auto_queries_withdrawn": "Number of auto queries per withdrawn subject",
     "close_dur": "Duration of close-out phase of study (months) ",
+    "crf_pages_per_visit": "Number of CRF pages per visit",
     "crf_pages_complete": "Number of CRF pages per completed subject",
     "crf_pages_screen_fail": "Number of CRF pages per screen failure subject",
     "crf_pages_total": "Total number of CRF pages",
@@ -114,15 +115,13 @@ FIELD_DESCRIPTIONS = {
 
 
 }
-
-
 # Mathematical or business rules used to derive each calculated field.
 # Fields without entries here will render with an em dash, indicating that the
 # value came directly from the source materials without additional math.
 FIELD_FORMULAS = {
     "adam_fr": "subj_dur * 1.5",
-    "crf_pages_complete": "num_visits * 10",
-    "crf_pages_total": "num_complete * (crf_pages_complete + avg_unscheduled_visits * 10) + num_withdrawn * crf_pages_withdrawn + num_screen_fail * crf_pages_screen_fail",
+    "crf_pages_complete": "num_visits * crf_pages_per_visit",
+    "crf_pages_total": "num_complete * (crf_pages_complete + avg_unscheduled_visits * crf_pages_per_visit) + num_withdrawn * crf_pages_withdrawn + num_screen_fail * crf_pages_screen_fail",
     "crf_pages_withdrawn": "crf_pages_complete / 2",
     "dsur_years": "floor(total_dur / 12)",
     "investigator_years": "floor(total_dur / 12)",
@@ -149,6 +148,32 @@ FIELD_FORMULAS = {
     "tlf_ia_unique_figures": "floor(tlf_final_unique_figures * 0.75)",
     "tlf_ia_unique_listings": "floor(tlf_final_unique_listings * 0.75)",
     "tlf_ia_unique_tables": "floor(tlf_final_unique_tables * 0.75)",
+}
+# Free-form implementation guidance, hints, or suggested values that help users
+# understand how to populate each field after extraction.
+FIELD_NOTES = {
+    "adam_fr": "Benchmark = ~1.5 refreshes/month",
+    "crf_pages_complete": "Benchmark = 10 pages per visit",
+    "crf_pages_withdrawn": "Assuming half the number of pages for withdrawn subjects",
+    "num_unique_terms_aemh": "Assuming 10 AEs per subject with 0.05 unique rate",
+    "num_unique_terms_cm": "Assuming 8 CM per subject with 0.3 unique rate",
+    "sdtm_fr": "Benchmark = ~3 refreshes/month",
+    "tlf_final_fr": "Assuming 1 refresh/month",
+    "tlf_dmc_fr": "Assuming 1 refresh/meeting",
+    "tlf_dmc_repeat_figures": "Assuming 60% of total TLFs needed for DMC",
+    "tlf_dmc_repeat_listings": "Assuming 60% of total TLFs needed for DMC",
+    "tlf_dmc_repeat_tables": "Assuming 60% of total TLFs needed for DMC",
+    "tlf_dmc_unique_figures": "Assuming 60% of total TLFs needed for DMC",
+    "tlf_dmc_unique_listings": "Assuming 60% of total TLFs needed for DMC",
+    "tlf_dmc_unique_tables": "Assuming 60% of total TLFs needed for DMC",
+    "sdtm_dmc_fr": "Assuming 1 refresh/meeting",
+    "adam_dmc_fr": "Assuming 1 refresh/meeting",
+    "tlf_ia_repeat_figures": "Assuming 75% of total TLFs needed for IA",
+    "tlf_ia_repeat_listings": "Assuming 75% of total TLFs needed for IA",
+    "tlf_ia_repeat_tables": "Assuming 75% of total TLFs needed for IA",
+    "tlf_ia_unique_figures": "Assuming 75% of total TLFs needed for IA",
+    "tlf_ia_unique_listings": "Assuming 75% of total TLFs needed for IA",
+    "tlf_ia_unique_tables": "Assuming 75% of total TLFs needed for IA",
 }
 
 
@@ -283,6 +308,7 @@ def upload_and_extract():
                 results=display,
                 descriptions=FIELD_DESCRIPTIONS,
                 formulas=FIELD_FORMULAS,
+                notes=FIELD_NOTES,
             )
         
         if session.get("base_done") and (do_refresh or do_dmc):
@@ -302,6 +328,7 @@ def upload_and_extract():
                 results=display,
                 descriptions=FIELD_DESCRIPTIONS,
                 formulas=FIELD_FORMULAS,
+                notes=FIELD_NOTES,
             )
 
         
@@ -317,6 +344,7 @@ def upload_and_extract():
             results=display,
             descriptions=FIELD_DESCRIPTIONS,
             formulas=FIELD_FORMULAS,
+            notes=FIELD_NOTES,
         )
 
     # GET → show upload form
