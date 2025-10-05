@@ -34,6 +34,9 @@
         <thead>
           <tr>
             <th>Field</th>
+            <th>Description</th>
+            <th>Formulas</th>
+            <th>Notes</th>
             <th>Value</th>
           </tr>
         </thead>
@@ -41,6 +44,9 @@
           {% for key, value in results.items() %}
             <tr>
               <td>{{ key }}</td>
+              <td>{{ descriptions.get(key, '—') if descriptions is defined else '—' }}</td>
+              <td>{{ formulas.get(key, '—') if formulas is defined else '—' }}</td>
+              <td>{{ notes.get(key, '—') if notes is defined else '—' }}</td>
               <td>
                 <input
                   type="text"
