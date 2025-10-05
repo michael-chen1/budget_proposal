@@ -22,6 +22,7 @@ ALLOWED_EXTENSIONS = {"pdf", "docx"}
 FIELD_DESCRIPTIONS = {
     "adam_compl": "Number of complex ADaM datasets",
     "adam_dmc_fr": "Number of full refreshes for ADaM datasets relating to DMC meetings",
+    "adam_ia_fr": "Number of full refreshes for ADaM datasets relating to IA",
     "adam_fr": "Number of full refreshes for ADaM datasets",
     "adam_simp": "Number of simple ADaM datasets",
     "anaylsis_dur": "Duration of analysis phase of study (months)",
@@ -72,6 +73,7 @@ FIELD_DESCRIPTIONS = {
     "safety_signal_report": "Number of quarterly reports for safety signal detection",
     "screen_failure_rate": "Screen failure rate (%)",
     "sdtm_dmc_fr": "Number of full refreshes for SDTM datasets relating to DMC meetings",
+    "sdtm_ia_fr": "Number of full refreshes for SDTM datasets relating to IA",
     "sdtm_fr": "Number of full refreshes for SDTM datasets",
     "sdtm_sd": "Number of SDTM subject domains",
     "sdtm_tdd": "Number of SDTM trial design domains",
