@@ -121,8 +121,8 @@ FIELD_DESCRIPTIONS = {
 # value came directly from the source materials without additional math.
 FIELD_FORMULAS = {
     "adam_fr": "subj_dur * 1.5",
-    "crf_pages_complete": "num_vists * 10",
-    "crf_pages_total": "num_complete * (crf_pages_complete + avg_unscheduled_visits * 10) + num_withdrawn * crf_pages_withdrawn",
+    "crf_pages_complete": "num_visits * 10",
+    "crf_pages_total": "num_complete * (crf_pages_complete + avg_unscheduled_visits * 10) + num_withdrawn * crf_pages_withdrawn + num_screen_fail * crf_pages_screen_fail",
     "crf_pages_withdrawn": "crf_pages_complete / 2",
     "dsur_years": "floor(total_dur / 12)",
     "investigator_years": "floor(total_dur / 12)",
