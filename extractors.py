@@ -5,7 +5,7 @@ load_dotenv(find_dotenv())
 import boto3
 from botocore.exceptions import ClientError
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import math
 import os
 
@@ -22,6 +22,37 @@ def get_bedrock_client():
 client = get_bedrock_client()
 model_id = "anthropic.claude-sonnet-4-20250514-v1:0"
 inference_profile_arn = "arn:aws:bedrock:us-east-1:730335504220:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+
+
+def _is_missing(value: Any) -> bool:
+    """Return True when a value represents an unknown quantity."""
+    return value in (-1, "-1", None, "")
+
+
+def _coerce_number(value: Any) -> Optional[float]:
+    """Best-effort conversion of ``value`` to a float, respecting sentinel values."""
+    if _is_missing(value):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _maybe_set_total_duration(data: Dict[str, Any]) -> None:
+    """Populate ``total_dur`` when possible, otherwise leave the sentinel value."""
+    if not _is_missing(data.get("total_dur")):
+        return
+
+    enroll = _coerce_number(data.get("enroll_dur"))
+    subj = _coerce_number(data.get("subj_dur"))
+
+    if enroll is None or subj is None:
+        return
+
+    data["total_dur"] = max(enroll + subj, enroll, subj)
 
     
 def extract_dict(response_text):
@@ -245,8 +276,7 @@ def get_data_biostats(documents):
     data.update(data2)
 
     #run hard-coded formulas
-    if data["total_dur"] == -1:
-        data["total_dur"] = max(data["enroll_dur"] + data["subj_dur"], data["enroll_dur"], data["subj_dur"])
+    _maybe_set_total_duration(data)
     
         
 
@@ -263,52 +293,38 @@ def get_data_biostats(documents):
 
 
 def calculate_dmc(data, documents, use_files):
-    def to_int(key):
-        """
-        Safely pull a numeric value out of data[key].
-        If it's missing, blank, or non-convertible, return 0.
-        """
-        v = data.get(key, 0)
-        if v in (None, "", -1):
-            return 0
-        try:
-            return int(v)
-        except (ValueError, TypeError):
-            try:
-                # in case it's a float-string
-                return int(float(v))
-            except Exception:
-                return 0
+    def to_number(key):
+        return _coerce_number(data.get(key, -1))
 
-    # base values (will be 0 if missing)
-    fu = to_int("tlf_final_unique_tables")
-    fr = to_int("tlf_final_repeat_tables")
-    gu = to_int("tlf_final_unique_figures")
-    gr = to_int("tlf_final_repeat_figures")
-    lu = to_int("tlf_final_unique_listings")
-    lr = to_int("tlf_final_repeat_listings")
-    sd = to_int("subj_dur")
-    td = to_int("total_dur")
+    def set_scaled(target: str, value: Optional[float], factor: float) -> None:
+        data[target] = -1 if value is None else math.floor(value * factor)
 
-    data["tlf_dmc_unique_tables"]   = math.floor(fu * 0.6)
-    data["tlf_dmc_repeat_tables"]   = math.floor(fr * 0.6)
-    data["tlf_dmc_unique_figures"]  = math.floor(gu * 0.6)
-    data["tlf_dmc_repeat_figures"]  = math.floor(gr * 0.6)
-    data["tlf_dmc_unique_listings"] = math.floor(lu * 0.6)
-    data["tlf_dmc_repeat_listings"] = math.floor(lr * 0.6)
+    fu = to_number("tlf_final_unique_tables")
+    fr = to_number("tlf_final_repeat_tables")
+    gu = to_number("tlf_final_unique_figures")
+    gr = to_number("tlf_final_repeat_figures")
+    lu = to_number("tlf_final_unique_listings")
+    lr = to_number("tlf_final_repeat_listings")
+    sd = to_number("subj_dur")
+    td = to_number("total_dur")
 
+    set_scaled("tlf_dmc_unique_tables", fu, 0.6)
+    set_scaled("tlf_dmc_repeat_tables", fr, 0.6)
+    set_scaled("tlf_dmc_unique_figures", gu, 0.6)
+    set_scaled("tlf_dmc_repeat_figures", gr, 0.6)
+    set_scaled("tlf_dmc_unique_listings", lu, 0.6)
+    set_scaled("tlf_dmc_repeat_listings", lr, 0.6)
 
-    data["tlf_ia_unique_tables"]   = math.floor(fu * 0.75)
-    data["tlf_ia_repeat_tables"]   = math.floor(fr * 0.75)
-    data["tlf_ia_unique_figures"]  = math.floor(gu * 0.75)
-    data["tlf_ia_repeat_figures"]  = math.floor(gr * 0.75)
-    data["tlf_ia_unique_listings"] = math.floor(lu * 0.75)
-    data["tlf_ia_repeat_listings"] = math.floor(lr * 0.75)
+    set_scaled("tlf_ia_unique_tables", fu, 0.75)
+    set_scaled("tlf_ia_repeat_tables", fr, 0.75)
+    set_scaled("tlf_ia_unique_figures", gu, 0.75)
+    set_scaled("tlf_ia_repeat_figures", gr, 0.75)
+    set_scaled("tlf_ia_unique_listings", lu, 0.75)
+    set_scaled("tlf_ia_repeat_listings", lr, 0.75)
 
-
-    data["dsur_report_tables"]   = 10
+    data["dsur_report_tables"] = 10
     data["dsur_report_datasets"] = 7
-    data["dsur_years"] = math.ceil(td/12.0)
+    data["dsur_years"] = -1 if td is None else math.ceil(td / 12.0)
 
     if use_files:
         prompt = """You are an expert in the clinical data management industry, trained to extract study information related to the DMC (data monitoring committee) from provided documents. Below are the variable(s) to extract:
@@ -335,17 +351,23 @@ def calculate_dmc(data, documents, use_files):
 
         dmc_data = extract_dict(response_text)
         
-        if dmc_data["num_dmc_meet"] == -1:
-            if dmc_data["dmc_meet_freq"] != -1 and dmc_data["dmc_meet_freq"] != 0:
-                num_dmc_meet = math.ceil(sd/dmc_data["dmc_meet_freq"]) + 1
-            else:
-                num_dmc_meet = math.ceil(sd/6) + 1
-        elif dmc_data["num_dmc_meet"] != -1:
-            num_dmc_meet = dmc_data["num_dmc_meet"]
+        reported_meetings = _coerce_number(dmc_data.get("num_dmc_meet"))
+        meet_freq = _coerce_number(dmc_data.get("dmc_meet_freq"))
 
+        if reported_meetings is not None:
+            num_dmc_meet = int(reported_meetings)
+        elif sd is None:
+            num_dmc_meet = -1
+        elif meet_freq is not None and meet_freq != 0:
+            num_dmc_meet = math.ceil(sd / meet_freq) + 1
+        else:
+            num_dmc_meet = math.ceil(sd / 6) + 1
 
     else:
-        num_dmc_meet = math.ceil(sd/6) + 1
+        if sd is None:
+            num_dmc_meet = -1
+        else:
+            num_dmc_meet = math.ceil(sd / 6) + 1
 
     data["num_dmc_meet"] = num_dmc_meet
     data["sdtm_dmc_fr"] = num_dmc_meet
@@ -356,24 +378,7 @@ def calculate_dmc(data, documents, use_files):
     return data
     
 def calculate_refresh(data, documents, use_files):
-    def to_int(key):
-        """
-        Safely pull a numeric value out of data[key].
-        If it's missing, blank, or non-convertible, return 0.
-        """
-        v = data.get(key, 0)
-        if v in (None, "", -1):
-            return 0
-        try:
-            return int(v)
-        except (ValueError, TypeError):
-            try:
-                # in case it's a float-string
-                return int(float(v))
-            except Exception:
-                return 0
-
-    sd = to_int("subj_dur")
+    sd = _coerce_number(data.get("subj_dur"))
     if use_files:
         prompt = """You are an expert in the clinical data management industry, trained to extract certain study-related information from provided documents. Below are the variable(s) to extract:
 
@@ -401,25 +406,30 @@ def calculate_refresh(data, documents, use_files):
 
         refresh_data = extract_dict(response_text)
         
-        if refresh_data["sdtm_fr"] == -1:
-            sdtm_fr = sd * 1.5
+        if _is_missing(refresh_data.get("sdtm_fr")):
+            sdtm_fr = -1 if sd is None else sd * 1.5
         else:
             sdtm_fr = refresh_data["sdtm_fr"]
-        if refresh_data["adam_fr"] == -1:
-            adam_fr = sd * 3
+        if _is_missing(refresh_data.get("adam_fr")):
+            adam_fr = -1 if sd is None else sd * 3
         else:
             adam_fr = refresh_data["adam_fr"]
-        if refresh_data["tlf_final_fr"] == -1:
-            tlf_fr = sd
+        if _is_missing(refresh_data.get("tlf_final_fr")):
+            tlf_fr = -1 if sd is None else sd
         else:
             tlf_fr = refresh_data["tlf_final_fr"]
 
 
 
     else:
-        sdtm_fr = sd * 1.5
-        adam_fr = sd * 3
-        tlf_fr = sd
+        if sd is None:
+            sdtm_fr = -1
+            adam_fr = -1
+            tlf_fr = -1
+        else:
+            sdtm_fr = sd * 1.5
+            adam_fr = sd * 3
+            tlf_fr = sd
 
     data["sdtm_fr"] = sdtm_fr
     data["adam_fr"] = adam_fr
@@ -485,16 +495,83 @@ def get_data_dm(documents):
     data.update(data1)
     
     #run hard-coded formulas
-    if data["total_dur"] == -1:
-        data["total_dur"] = max(data["enroll_dur"] + data["subj_dur"], data["enroll_dur"], data["subj_dur"])
+    _maybe_set_total_duration(data)
 
-    data["crf_pages_complete"] = data["num_visits"] * data["crf_pages_per_visit"]
-    data["crf_pages_total"] = data["num_screen_fail"] * data["crf_pages_screen_fail"] + data["num_complete"] * (data["crf_pages_complete"] + data["avg_unscheduled_visit"] * data["crf_pages_per_visit"]) + data["num_withdrawn"] * data["crf_pages_withdrawn"]
-    data["manual_queries_total"] = data["num_complete"] * data["manual_queries_complete"] + data["num_withdrawn"] * data["manual_queries_withdrawn"]
-    data["auto_queries_total"] = data["num_screen_fail"] * data["auto_queries_screen_fail"] + data["num_complete"] * data["auto_queries_complete"] + data["num_withdrawn"] * data["auto_queries_withdrawn"]
-    data["crf_pages_total"] = int(data["crf_pages_total"])
-    data["manual_queries_total"] = int(data["manual_queries_total"])
-    data["auto_queries_total"] = int(data["auto_queries_total"])
+    num_visits = _coerce_number(data.get("num_visits"))
+    crf_pages_per_visit = _coerce_number(data.get("crf_pages_per_visit"))
+    if num_visits is None or crf_pages_per_visit is None:
+        data["crf_pages_complete"] = -1
+    else:
+        data["crf_pages_complete"] = int(num_visits * crf_pages_per_visit)
+
+    num_screen_fail = _coerce_number(data.get("num_screen_fail"))
+    crf_pages_screen_fail = _coerce_number(data.get("crf_pages_screen_fail"))
+    num_complete = _coerce_number(data.get("num_complete"))
+    crf_pages_complete = _coerce_number(data.get("crf_pages_complete"))
+    avg_unscheduled = _coerce_number(data.get("avg_unscheduled_visits"))
+    num_withdrawn = _coerce_number(data.get("num_withdrawn"))
+    crf_pages_withdrawn = _coerce_number(data.get("crf_pages_withdrawn"))
+
+    if (
+        None in (
+            num_screen_fail,
+            crf_pages_screen_fail,
+            num_complete,
+            crf_pages_complete,
+            avg_unscheduled,
+            crf_pages_per_visit,
+            num_withdrawn,
+            crf_pages_withdrawn,
+        )
+    ):
+        data["crf_pages_total"] = -1
+    else:
+        crf_total = (
+            num_screen_fail * crf_pages_screen_fail
+            + num_complete * (crf_pages_complete + avg_unscheduled * crf_pages_per_visit)
+            + num_withdrawn * crf_pages_withdrawn
+        )
+        data["crf_pages_total"] = int(crf_total)
+
+    manual_queries_complete = _coerce_number(data.get("manual_queries_complete"))
+    manual_queries_withdrawn = _coerce_number(data.get("manual_queries_withdrawn"))
+    if (
+        None in (
+            num_complete,
+            manual_queries_complete,
+            num_withdrawn,
+            manual_queries_withdrawn,
+        )
+    ):
+        data["manual_queries_total"] = -1
+    else:
+        manual_total = (
+            num_complete * manual_queries_complete
+            + num_withdrawn * manual_queries_withdrawn
+        )
+        data["manual_queries_total"] = int(manual_total)
+
+    auto_queries_screen_fail = _coerce_number(data.get("auto_queries_screen_fail"))
+    auto_queries_complete = _coerce_number(data.get("auto_queries_complete"))
+    auto_queries_withdrawn = _coerce_number(data.get("auto_queries_withdrawn"))
+    if (
+        None in (
+            num_screen_fail,
+            auto_queries_screen_fail,
+            num_complete,
+            auto_queries_complete,
+            num_withdrawn,
+            auto_queries_withdrawn,
+        )
+    ):
+        data["auto_queries_total"] = -1
+    else:
+        auto_total = (
+            num_screen_fail * auto_queries_screen_fail
+            + num_complete * auto_queries_complete
+            + num_withdrawn * auto_queries_withdrawn
+        )
+        data["auto_queries_total"] = int(auto_total)
         
 
 ##    enroll = data.get("enroll_dur", 0)
@@ -520,8 +597,7 @@ def get_data_pm(documents):
     data1 = get_provided_data(documents)
 
     data.update(data1)
-    if data["total_dur"] == -1:
-        data["total_dur"] = max(data["enroll_dur"] + data["subj_dur"], data["enroll_dur"], data["subj_dur"])
+    _maybe_set_total_duration(data)
 
     return data
 
@@ -538,8 +614,7 @@ def get_data_conform(documents):
     data1 = get_provided_data(documents)
 
     data.update(data1)
-    if data["total_dur"] == -1:
-        data["total_dur"] = max(data["enroll_dur"] + data["subj_dur"], data["enroll_dur"], data["subj_dur"])
+    _maybe_set_total_duration(data)
 
     return data
 
