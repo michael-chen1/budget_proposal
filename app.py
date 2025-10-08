@@ -17,6 +17,31 @@ app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB
 ALLOWED_EXTENSIONS = {"pdf", "docx"}
 
 
+def _truthy(value):
+    """Return ``True`` when ``value`` indicates that DMC/IA is required."""
+    if value in (-1, "-1", None, ""):
+        return False
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "t", "yes", "y", "1"}:
+            return True
+        if normalized in {"false", "f", "no", "n", "0"}:
+            return False
+        try:
+            return float(normalized) != 0.0
+        except ValueError:
+            return False
+    return False
+
+
+def _should_offer_dmc(steps, data):
+    return "biostats" in steps and _truthy(data.get("dmc/ia"))
+
+
 # Short descriptions for each extracted field. Any field not listed here will
 # simply render with a blank description cell in the results table.
 FIELD_DESCRIPTIONS = {
@@ -309,6 +334,7 @@ def upload_and_extract():
                 descriptions=FIELD_DESCRIPTIONS,
                 formulas=FIELD_FORMULAS,
                 notes=FIELD_NOTES,
+                show_dmc_prompt=_should_offer_dmc(steps, data),
             )
         
         if session.get("base_done") and (do_refresh or do_dmc):
@@ -329,6 +355,7 @@ def upload_and_extract():
                 descriptions=FIELD_DESCRIPTIONS,
                 formulas=FIELD_FORMULAS,
                 notes=FIELD_NOTES,
+                show_dmc_prompt=_should_offer_dmc(steps, data),
             )
 
         
@@ -345,6 +372,7 @@ def upload_and_extract():
             descriptions=FIELD_DESCRIPTIONS,
             formulas=FIELD_FORMULAS,
             notes=FIELD_NOTES,
+            show_dmc_prompt=_should_offer_dmc(steps, data),
         )
 
     # GET → show upload form
