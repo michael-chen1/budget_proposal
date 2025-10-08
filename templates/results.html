@@ -64,8 +64,8 @@
         <button type="submit">Save Changes</button>
       </p>
 
-     <!-- if biostats was selected, show the DMC sub‑step -->
-      {% if 'biostats' in session.extraction_steps %}
+     <!-- only offer the DMC sub-step when the base data indicates it is needed -->
+      {% if show_dmc_prompt|default(False) %}
         <hr>
         <h2>Data Monitoring Committee detected</h2>
         <p>Would you like to auto-fill DMC fields?</p>
