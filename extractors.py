@@ -9,19 +9,101 @@ from typing import List, Dict, Any, Optional
 import math
 import os
 
+import ast, re
 
-def get_bedrock_client():
-    return boto3.client(
-        "bedrock-runtime",
-        region_name    = os.environ.get("AWS_REGION", "us-east-1"),
-        aws_access_key_id     = os.environ["AWS_KEY"],
-        aws_secret_access_key = os.environ["AWS_SECRET"],
+_FENCE_RE = re.compile(
+    r"```(?:\s*python)?\s*(.*?)\s*```",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+def _first_braced_block(s: str) -> str:
+    """Fallback: return the first balanced { ... } block."""
+    i = s.find("{")
+    if i == -1:
+        raise ValueError("No JSON object found in response")
+    depth = 0
+    in_str = False
+    esc = False
+    for j in range(i, len(s)):
+        ch = s[j]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        else:
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return s[i:j+1]
+    # Unbalanced braces; return the remainder so downstream tries can still work
+    return s[i:]
+
+
+def extract_dict(response_text: str):
+    """
+    Parse a dict from a model reply of the form:
+
+        [some text]
+        ```python
+        { ... dictionary contents ... }
+        ```
+        [more text]
+
+    Strategy:
+      1) Extract first fenced code block (```python ... ```); parse that.
+      2) If no fence, fall back to the first balanced { ... } slice.
+      3) Try ast.literal_eval (accepts single quotes/True/None).
+      4) Fall back to strict JSON (with light normalization).
+    """
+    s = (response_text or "").strip()
+
+    # 1) Prefer content inside the first fenced code block
+    m = _FENCE_RE.search(s)
+    if m:
+        body = m.group(1).strip()
+    else:
+        # 2) Fallback: isolate the first { ... } block from the whole text
+        body = _first_braced_block(s).strip()
+
+    # 3) Python-literal parse first (handles single quotes, True/False/None)
+    try:
+        obj = ast.literal_eval(body)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+
+    # 4) Light normalization → JSON, then parse strictly
+    body_jsonish = (
+        body
+        .replace(": True", ": true")
+        .replace(": False", ": false")
+        .replace(": None", ": null")
     )
+    # As a final nudge, if keys/strings are single-quoted, convert to double quotes.
+    # (Most tricky apostrophes are already handled by ast path above.)
+    if "'" in body_jsonish and '"' not in body_jsonish:
+        body_jsonish = re.sub(r"'", '"', body_jsonish)
 
+    try:
+        obj = json.loads(body_jsonish)
+        if isinstance(obj, dict):
+            return obj
+    except json.JSONDecodeError as e:
+        raise ValueError("Parsed JSON is not an object/dict") from e
 
-client = get_bedrock_client()
-model_id = "anthropic.claude-sonnet-4-20250514-v1:0"
-inference_profile_arn = "arn:aws:bedrock:us-east-1:730335504220:inference-profile/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+    
+
+session = boto3.Session(profile_name = "michael-chen", region_name = "us-east-1")
+brt = session.client("bedrock-runtime")
+model_id = 'anthropic.claude-3-5-sonnet-20240620-v1:0'
 
 
 def _is_missing(value: Any) -> bool:
@@ -54,21 +136,6 @@ def _maybe_set_total_duration(data: Dict[str, Any]) -> None:
 
     data["total_dur"] = max(enroll + subj, enroll, subj)
 
-    
-def extract_dict(response_text):
-    response_text = response_text.replace(": True", ": true") \
-                                 .replace(": False", ": false")
-    start = response_text.find('{')
-    if start == -1:
-        raise ValueError("No JSON object found in response")
-
-    decoder = json.JSONDecoder()
-    obj, end = decoder.raw_decode(response_text[start:])
-
-    if not isinstance(obj, dict):
-        raise ValueError("Parsed JSON is not an object/dict")
-
-    return obj
 
 
 def _build_conversation(prompt: str, documents: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -115,10 +182,12 @@ to_extract = {
 Output the extracted quantities in the format of a Python dictionary with keys written exactly as above. If a quantity cannot be found, write its value as -1. Make sure you enter an integer only for each entry.
 It is imperative that the durations are in months. Make sure to convert them to months."""
     conversation = _build_conversation(prompt, documents)
+    client = brt
+    mid = model_id
 
     try:
         response = client.converse(
-            modelId=inference_profile_arn,
+            modelId=mid,
             messages=conversation,
             inferenceConfig={"maxTokens": 1000, "temperature": 0.3},
         )
@@ -175,10 +244,12 @@ For Phase 3 study, 120-200 tlfs (35 unique tables 50 repeat tables 40 unique lis
 
 """
     conversation = _build_conversation(prompt, documents)
+    client = brt
+    mid = model_id
 
     try:
         response = client.converse(
-            modelId=inference_profile_arn,
+            modelId=mid,
             messages=conversation,
             inferenceConfig={"maxTokens": 1000, "temperature": 0.3},
         )
@@ -337,11 +408,13 @@ def calculate_dmc(data, documents, use_files):
 
     Output the extracted quantities in the format of a Python dictionary with keys written exactly as above. If a quantity cannot be found, write its value as -1. Make sure you enter an integer only for each entry.
     It is imperative that the durations are in months. Make sure to convert them to months."""
+        client = brt
+        mid = model_id
         conversation = _build_conversation(prompt, documents)
 
         try:
             response = client.converse(
-                modelId=inference_profile_arn,
+                modelId=mid,
                 messages=conversation,
                 inferenceConfig={"maxTokens": 1000, "temperature": 0.3},
             )
@@ -393,10 +466,12 @@ def calculate_refresh(data, documents, use_files):
     Output the extracted quantities in the format of a Python dictionary with keys written exactly as above. If a quantity cannot be found, write its value as -1. Make sure you enter an integer only for each entry.
     It is imperative that the durations are in months. Make sure to convert them to months."""
         conversation = _build_conversation(prompt, documents)
+        mid = model_id
+        client = brt
 
         try:
             response = client.converse(
-                modelId=inference_profile_arn,
+                modelId=mid,
                 messages=conversation,
                 inferenceConfig={"maxTokens": 1000, "temperature": 0.3},
             )
