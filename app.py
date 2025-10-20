@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import inspect
 import os
 import extractors
 from flask import Flask, request, render_template, session, send_file, redirect, url_for
@@ -246,7 +247,19 @@ def _extract_work_order_fields(documents):
         return {}
 
     try:
-        result = extractor(documents)
+        signature = inspect.signature(extractor)
+    except (TypeError, ValueError):
+        signature = None
+
+    try:
+        if signature and any(
+            param.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+            and param.name == "documents"
+            for param in signature.parameters.values()
+        ):
+            result = extractor(documents=documents)
+        else:
+            result = extractor(documents)
     except Exception:
         app.logger.exception("extract_wo failed")
         return {}
