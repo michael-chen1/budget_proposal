@@ -9,13 +9,15 @@
   <body>
     <h1>Extracted Data (you can edit)</h1>
 
+    {% set manual_fields = ['wo_number', 'wo_date', 'customer_email', 'representative_name', 'title'] %}
+
      <form
- 	 id="resultsForm"
-	  method="post"
- 	 action="{{ url_for('upload_and_extract') }}"
-	  enctype="multipart/form-data"
-	>
-      <!-- if biostats was selected, show the Refresh sub‑step -->
+         id="resultsForm"
+         method="post"
+         action="{{ url_for('upload_and_extract') }}"
+         enctype="multipart/form-data"
+        >
+      <!-- if biostats was selected, show the Refresh sub-step -->
       {% if 'biostats' in session.extraction_steps %}
         <hr>
         <h2>Basic Extraction Complete</h2>
@@ -29,6 +31,34 @@
         <button type="button" id="confirmRefresh">Proceed with Refresh</button>
       {% endif %}
 
+      <hr>
+      <h2>Work Order Details</h2>
+      <p>Fill in or adjust the information that will appear on the downloadable work order.</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;max-width:900px;">
+        <label>
+          <span style="display:block;font-weight:bold;">Work Order Number</span>
+          <input type="text" name="wo_number" value="{{ results.get('wo_number', '') }}" style="width:100%;">
+        </label>
+        <label>
+          <span style="display:block;font-weight:bold;">Work Order Date</span>
+          <input type="text" name="wo_date" value="{{ results.get('wo_date', '') }}" style="width:100%;">
+        </label>
+        <label>
+          <span style="display:block;font-weight:bold;">Customer Email</span>
+          <input type="email" name="customer_email" value="{{ results.get('customer_email', '') }}" style="width:100%;">
+        </label>
+        <label>
+          <span style="display:block;font-weight:bold;">Representative Name</span>
+          <input type="text" name="representative_name" value="{{ results.get('representative_name', '') }}" style="width:100%;">
+        </label>
+        <label>
+          <span style="display:block;font-weight:bold;">Representative Title</span>
+          <input type="text" name="title" value="{{ results.get('title', '') }}" style="width:100%;">
+        </label>
+      </div>
+
+      <hr>
+      <h2>Editable Extracted Values</h2>
       <!-- Editable table -->
       <table border="1" cellpadding="4" cellspacing="0">
         <thead>
@@ -41,7 +71,7 @@
           </tr>
         </thead>
         <tbody>
-          {% for key, value in results.items() %}
+          {% for key, value in results.items() if key not in manual_fields %}
             <tr>
               <td>{{ key }}</td>
               <td>{{ descriptions.get(key, '—') if descriptions is defined else '—' }}</td>

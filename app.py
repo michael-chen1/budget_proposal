@@ -228,6 +228,14 @@ WORK_ORDER_FIELDS = (
     "title",
 )
 
+WORK_ORDER_MANUAL_FIELDS = {
+    "wo_number",
+    "wo_date",
+    "customer_email",
+    "representative_name",
+    "title",
+}
+
 SHEETS_MAP = {"biostats": ["Study Information", "Biostatistics and Programming"],
               "data_management": ["Study Information", "Clinical Data Management"],
               "project_management": ["Study Information", "Project Management"],
@@ -271,6 +279,12 @@ def _extract_work_order_fields(documents):
     return {key: result.get(key, "") for key in WORK_ORDER_FIELDS}
 
 
+def _ensure_manual_work_order_fields(data):
+    for field in WORK_ORDER_MANUAL_FIELDS:
+        data.setdefault(field, "")
+    return data
+
+
 def run_extraction(steps, documents, refresh_opts, dmc_opts):
 
     data = {}
@@ -288,6 +302,8 @@ def run_extraction(steps, documents, refresh_opts, dmc_opts):
         work_order_fields = _extract_work_order_fields(documents)
         if work_order_fields:
             data.update(work_order_fields)
+
+    _ensure_manual_work_order_fields(data)
 
     return data
 
@@ -308,6 +324,8 @@ def run_substeps(steps, data, refresh_opts, dmc_opts):
         d = False
     if "biostats" in steps and do_dmc:
         data.update(calculate_dmc(data, dmc_docs, d))
+
+    _ensure_manual_work_order_fields(data)
 
     return data
 
@@ -371,6 +389,7 @@ def upload_and_extract():
         if not documents and not do_refresh and not do_dmc:
             # Merge every non‑control form field into session["extracted"]
             data = session.get("extracted", {}).copy()
+            _ensure_manual_work_order_fields(data)
             for key, val in request.form.items():
                 if key not in (
                     "calculate_refresh",
@@ -379,6 +398,7 @@ def upload_and_extract():
                     "dmc_file_opt_in"
                 ):
                     data[key] = val
+            _ensure_manual_work_order_fields(data)
             session["extracted"] = data
 
             # Re‑render results table with blanks for any -1
@@ -397,12 +417,14 @@ def upload_and_extract():
         
         if session.get("base_done") and (do_refresh or do_dmc):
             data = session.get("extracted", {}).copy()
+            _ensure_manual_work_order_fields(data)
             extract = run_substeps(
                 steps,
                 data,
                 (do_refresh, refresh_docs),
                 (do_dmc,     dmc_docs),
             )
+            _ensure_manual_work_order_fields(extract)
             session["extracted"] = extract
 
 
