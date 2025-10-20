@@ -2,12 +2,20 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
-from flask import Flask, request, render_template, session, send_file, redirect, url_for, jsonify
-from extractors import get_data_biostats, calculate_dmc, calculate_refresh, get_data_dm, get_data_pm, get_data_conform
+import extractors
+from flask import Flask, request, render_template, session, send_file, redirect, url_for
+from extractors import (
+    get_data_biostats,
+    calculate_dmc,
+    calculate_refresh,
+    get_data_dm,
+    get_data_pm,
+    get_data_conform,
+)
 from excel_utils import populate_template
-from openpyxl import Workbook, load_workbook
+from word_utils import populate_work_order
+from openpyxl import load_workbook
 import tempfile
-import json
 
 
 app = Flask(__name__)
@@ -204,6 +212,20 @@ FIELD_NOTES = {
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.join(BASE_DIR, "templates_xlsx", "template_full.xlsx")
+WO_TEMPLATE_PATH = os.path.join(BASE_DIR, "wo_template.docx")
+
+WORK_ORDER_FIELDS = (
+    "study_number",
+    "wo_number",
+    "wo_date",
+    "sponsor",
+    "services",
+    "budget",
+    "end_date",
+    "customer_email",
+    "representative_name",
+    "title",
+)
 
 SHEETS_MAP = {"biostats": ["Study Information", "Biostatistics and Programming"],
               "data_management": ["Study Information", "Clinical Data Management"],
@@ -218,6 +240,24 @@ def allowed_file(filename):
         and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
     )
 
+def _extract_work_order_fields(documents):
+    extractor = getattr(extractors, "extract_wo", None)
+    if not callable(extractor):
+        return {}
+
+    try:
+        result = extractor(documents)
+    except Exception:
+        app.logger.exception("extract_wo failed")
+        return {}
+
+    if not isinstance(result, dict):
+        app.logger.warning("extract_wo returned non-dict result: %r", type(result))
+        return {}
+
+    return {key: result.get(key, "") for key in WORK_ORDER_FIELDS}
+
+
 def run_extraction(steps, documents, refresh_opts, dmc_opts):
 
     data = {}
@@ -230,6 +270,11 @@ def run_extraction(steps, documents, refresh_opts, dmc_opts):
         data.update(get_data_dm(documents))
     if "biostats" in steps:
         data.update(get_data_biostats(documents))
+
+    if documents:
+        work_order_fields = _extract_work_order_fields(documents)
+        if work_order_fields:
+            data.update(work_order_fields)
 
     return data
 
@@ -427,6 +472,41 @@ def export():
     def cleanup():
         try:
             os.remove(tmp_in.name)
+            os.remove(tmp_out.name)
+        except OSError:
+            pass
+
+    return resp
+
+
+@app.route("/export_work_order", methods=["POST"])
+def export_work_order():
+    data = session.get("extracted")
+    if not data:
+        return redirect(url_for("select_types"))
+
+    sanitized = {
+        k: ("" if v in (-1, "-1", None) else v)
+        for k, v in data.items()
+    }
+
+    payload = {field: sanitized.get(field, "") for field in WORK_ORDER_FIELDS}
+
+    tmp_out = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
+    tmp_out.close()
+
+    populate_work_order(payload, WO_TEMPLATE_PATH, tmp_out.name)
+
+    resp = send_file(
+        tmp_out.name,
+        as_attachment=True,
+        download_name="work_order.docx",
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+    @resp.call_on_close
+    def cleanup():
+        try:
             os.remove(tmp_out.name)
         except OSError:
             pass

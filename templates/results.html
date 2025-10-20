@@ -86,6 +86,11 @@
       <button type="submit">📥 Download Budget Proposal (Excel)</button>
     </form>
 
+    <!-- Export to Word Work Order -->
+    <form action="{{ url_for('export_work_order') }}" method="post" style="margin-top:0.5em;">
+      <button type="submit">📝 Download Work Order (Word)</button>
+    </form>
+
     <script>
       document.getElementById('confirmRefresh').onclick = function() {
         document.getElementById('calculateRefresh').value = 'yes';

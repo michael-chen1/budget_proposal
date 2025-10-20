@@ -6,4 +6,5 @@ redis
 rq
 certifi
 python-dotenv
+python-docx
 
