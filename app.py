@@ -16,6 +16,7 @@ from extractors import (
 from excel_utils import populate_template
 from word_utils import populate_work_order
 from openpyxl import load_workbook
+from docx import Document
 import tempfile
 
 
@@ -223,6 +224,7 @@ WORK_ORDER_FIELDS = (
     "sponsor",
     "services",
     "budget",
+    "budget_tables",
     "end_date",
     "customer_email",
     "representative_name",
@@ -243,6 +245,123 @@ SHEETS_MAP = {"biostats": ["Study Information", "Biostatistics and Programming"]
               "project_management": ["Study Information", "Project Management"],
               "conform": ["Study Information", "CONFORM Informatics"],
               }
+
+BUDGET_PLACEHOLDER_TOKEN = "__BUDGET_TABLES__"
+
+
+def _ordered_service_sheets(steps, workbook):
+    seen = set()
+    ordered = []
+    for step in steps:
+        for sheet_name in SHEETS_MAP.get(step, []):
+            if sheet_name in workbook.sheetnames and sheet_name not in seen:
+                ordered.append(sheet_name)
+                seen.add(sheet_name)
+    return ordered
+
+
+def _worksheet_to_rows(worksheet):
+    rows = []
+    for row in worksheet.iter_rows(values_only=True):
+        formatted = ["" if cell is None else str(cell) for cell in row]
+        if not any(formatted):
+            if not rows:
+                continue
+            rows.append(formatted)
+        else:
+            rows.append(formatted)
+
+    while rows and not any(cell for cell in rows[-1]):
+        rows.pop()
+
+    if not rows:
+        return []
+
+    max_cols = max(len(row) for row in rows)
+    for row in rows:
+        if len(row) < max_cols:
+            row.extend([""] * (max_cols - len(row)))
+    return rows
+
+
+def _collect_budget_tables(data, steps):
+    if not steps:
+        return []
+
+    tmp_in = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+    tmp_in.close()
+    try:
+        populate_template(data, TEMPLATE_PATH, tmp_in.name)
+        wb = load_workbook(tmp_in.name, data_only=True)
+        try:
+            tables = []
+            for sheet_name in _ordered_service_sheets(steps, wb):
+                worksheet = wb[sheet_name]
+                rows = _worksheet_to_rows(worksheet)
+                if rows:
+                    tables.append((sheet_name, rows))
+            return tables
+        finally:
+            wb.close()
+    finally:
+        try:
+            os.remove(tmp_in.name)
+        except OSError:
+            pass
+
+
+def _embed_budget_tables(doc_path, tables, placeholder_token):
+    document = Document(doc_path)
+
+    placeholder_para = None
+    for paragraph in document.paragraphs:
+        if placeholder_token in paragraph.text:
+            placeholder_para = paragraph
+            break
+
+    if placeholder_para is None:
+        document.save(doc_path)
+        return
+
+    placeholder_style = placeholder_para.style
+    body = document._body._element
+    body_children = list(body)
+    try:
+        insert_index = body_children.index(placeholder_para._element)
+    except ValueError:
+        document.save(doc_path)
+        return
+
+    body.remove(placeholder_para._element)
+
+    if not tables:
+        replacement = document.add_paragraph()
+        if placeholder_style is not None:
+            replacement.style = placeholder_style
+        body.insert(insert_index, replacement._element)
+        document.save(doc_path)
+        return
+
+    for title, rows in tables:
+        heading = document.add_paragraph(title)
+        if placeholder_style is not None:
+            heading.style = placeholder_style
+        body.insert(insert_index, heading._element)
+        insert_index += 1
+
+        if not rows:
+            continue
+
+        cols = len(rows[0])
+        table = document.add_table(rows=len(rows), cols=cols)
+        table.style = "Table Grid"
+        for row_idx, row in enumerate(rows):
+            for col_idx, value in enumerate(row):
+                table.cell(row_idx, col_idx).text = value
+        body.insert(insert_index, table._element)
+        insert_index += 1
+
+    document.save(doc_path)
 
 
 def allowed_file(filename):
@@ -527,6 +646,7 @@ def export():
 
 @app.route("/export_work_order", methods=["POST"])
 def export_work_order():
+    steps = session.get("extraction_steps", [])
     data = session.get("extracted")
     if not data:
         return redirect(url_for("select_types"))
@@ -536,12 +656,17 @@ def export_work_order():
         for k, v in data.items()
     }
 
+    budget_tables = _collect_budget_tables(sanitized.copy(), steps)
+
     payload = {field: sanitized.get(field, "") for field in WORK_ORDER_FIELDS}
+    payload["budget_tables"] = BUDGET_PLACEHOLDER_TOKEN
 
     tmp_out = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
     tmp_out.close()
 
     populate_work_order(payload, WO_TEMPLATE_PATH, tmp_out.name)
+
+    _embed_budget_tables(tmp_out.name, budget_tables, BUDGET_PLACEHOLDER_TOKEN)
 
     resp = send_file(
         tmp_out.name,
