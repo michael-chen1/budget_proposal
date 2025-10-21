@@ -279,7 +279,7 @@ def get_data_biostats(documents):
         "num_countries": -1,
         "num_sites": -1,
         "screen_failure_rate": 0.2,
-        "dropout_rate": -1,
+        "dropout_rate": 0.15,
         "num_screened_subj": -1,
         "num_screen_fail": -1,
         "num_subj": -1,
@@ -349,8 +349,6 @@ def get_data_biostats(documents):
     #run hard-coded formulas
     _maybe_set_total_duration(data)
     
-        
-
 ##    enroll = data.get("enroll_dur", 0)
 ##    subject = data.get("subj_dur", 0)
 ##    total = data.get("total_dur", 0)
@@ -561,18 +559,23 @@ def get_data_dm(documents):
     data1 = get_provided_data(documents)
     sf = data.get("screen_failure_rate", 0)
     dr = data.get("dropout_rate", 0)
+    sd = data.get("subj_dur", 0)
     if data1["num_subj"] == -1:
         data1["num_subj"] = 100
-    data1["num_screened_subj"] = 1/(1-sf) * data1["num_subj"]
-    data1["num_screen_fail"] = sf * data1["num_screened_subj"]
-    data1["num_complete"] = (1-dr) * data1["num_subj"]
-    data1["num_withdrawn"] = dr * data1["num_subj"]
+    data1["num_screened_subj"] = round(1/(1-sf) * data1["num_subj"])
+    data1["num_screen_fail"] = round(sf * data1["num_screened_subj"])
+    data1["num_complete"] = round((1-dr) * data1["num_subj"])
+    data1["num_withdrawn"] = round(dr * data1["num_subj"])
     data.update(data1)
     
     #run hard-coded formulas
     _maybe_set_total_duration(data)
 
     num_visits = _coerce_number(data.get("num_visits"))
+    if num_visits is None:
+        num_visits = 2 * sd + 2
+        data["num_visits"] = num_visits
+    
     crf_pages_per_visit = _coerce_number(data.get("crf_pages_per_visit"))
     if num_visits is None or crf_pages_per_visit is None:
         data["crf_pages_complete"] = -1
@@ -586,7 +589,9 @@ def get_data_dm(documents):
     avg_unscheduled = _coerce_number(data.get("avg_unscheduled_visits"))
     num_withdrawn = _coerce_number(data.get("num_withdrawn"))
     crf_pages_withdrawn = _coerce_number(data.get("crf_pages_withdrawn"))
-
+    if avg_unscheduled is None:
+        avg_unscheduled = num_visits/4.0
+        data["avg_unscheduled_visits"] = avg_unscheduled
     if (
         None in (
             num_screen_fail,
@@ -692,5 +697,38 @@ def get_data_conform(documents):
     _maybe_set_total_duration(data)
 
     return data
+
+def extract_wo(documents):
+    prompt = """You are an expert in the clinical data management industry, trained to extract study information from provided documents.
+You will receive a study protocol along with other supporting document(s), and a list of variables with brief descriptions that you need to extract from the documents.
+Below are the variables to extract:
+
+to_extract = {
+    study_number: The name/number of the study which the protocol references,
+    sponsor: The name of the company that is sponsoring this study,
+
+}
+
+Output the extracted quantities in the format of a Python dictionary with keys written exactly as above."""
+    conversation = _build_conversation(prompt, documents)
+    client = brt
+    mid = model_id
+    
+    try:
+        response = client.converse(
+            modelId=mid,
+            messages=conversation,
+            inferenceConfig={"maxTokens": 1000, "temperature": 0.3},
+        )
+        response_text = response["output"]["message"]["content"][0]["text"]
+    except (ClientError, Exception) as e:
+        raise RuntimeError(f"Failed to invoke model: {e}")
+    print(response_text)
+    data = extract_dict(response_text)
+    print(data)
+    return data
+    
+
+    
 
 

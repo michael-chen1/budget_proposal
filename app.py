@@ -1,13 +1,22 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import inspect
 import os
-from flask import Flask, request, render_template, session, send_file, redirect, url_for, jsonify
-from extractors import get_data_biostats, calculate_dmc, calculate_refresh, get_data_dm, get_data_pm, get_data_conform
+import extractors
+from flask import Flask, request, render_template, session, send_file, redirect, url_for
+from extractors import (
+    get_data_biostats,
+    calculate_dmc,
+    calculate_refresh,
+    get_data_dm,
+    get_data_pm,
+    get_data_conform,
+)
 from excel_utils import populate_template
-from openpyxl import Workbook, load_workbook
+from word_utils import populate_work_order
+from openpyxl import load_workbook
 import tempfile
-import json
 
 
 app = Flask(__name__)
@@ -178,8 +187,9 @@ FIELD_FORMULAS = {
 # understand how to populate each field after extraction.
 FIELD_NOTES = {
     "adam_fr": "Benchmark = ~1.5 refreshes/month",
-    "crf_pages_complete": "Benchmark = 10 pages per visit",
+    "crf_pages_per_visit": "Benchmark = 10 pages per visit",
     "crf_pages_withdrawn": "Assuming half the number of pages for withdrawn subjects",
+    "num_visits": "Default 2 * duration + 2 visits",
     "num_unique_terms_aemh": "Assuming 10 AEs per subject with 0.05 unique rate",
     "num_unique_terms_cm": "Assuming 8 CM per subject with 0.3 unique rate",
     "sdtm_fr": "Benchmark = ~3 refreshes/month",
@@ -204,6 +214,29 @@ FIELD_NOTES = {
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.join(BASE_DIR, "templates_xlsx", "template_full.xlsx")
+WO_TEMPLATE_PATH = os.path.join(BASE_DIR, "wo_template.docx")
+
+WORK_ORDER_FIELDS = (
+    "study_number",
+    "wo_number",
+    "wo_date",
+    "sponsor",
+    "services",
+    "budget",
+    "end_date",
+    "customer_email",
+    "representative_name",
+    "title",
+)
+
+WORK_ORDER_MANUAL_FIELDS = {
+    "wo_number",
+    "wo_date",
+    "customer_email",
+    "representative_name",
+    "title",
+    "end_date"
+}
 
 SHEETS_MAP = {"biostats": ["Study Information", "Biostatistics and Programming"],
               "data_management": ["Study Information", "Clinical Data Management"],
@@ -218,18 +251,70 @@ def allowed_file(filename):
         and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
     )
 
+def _extract_work_order_fields(documents):
+    extractor = getattr(extractors, "extract_wo", None)
+    if not callable(extractor):
+        return {}
+
+    try:
+        signature = inspect.signature(extractor)
+    except (TypeError, ValueError):
+        signature = None
+
+    try:
+        if signature and any(
+            param.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+            and param.name == "documents"
+            for param in signature.parameters.values()
+        ):
+            result = extractor(documents=documents)
+        else:
+            result = extractor(documents)
+    except Exception:
+        app.logger.exception("extract_wo failed")
+        return {}
+
+    if not isinstance(result, dict):
+        app.logger.warning("extract_wo returned non-dict result: %r", type(result))
+        return {}
+
+    return {key: result.get(key, "") for key in WORK_ORDER_FIELDS}
+
+
+def _ensure_manual_work_order_fields(data):
+    for field in WORK_ORDER_MANUAL_FIELDS:
+        data.setdefault(field, "")
+    return data
+
+
 def run_extraction(steps, documents, refresh_opts, dmc_opts):
 
     data = {}
+    services_list = []
     print(2)
-    if "conform" in steps:
-        data.update(get_data_conform(documents))
-    if "project_management" in steps:
-        data.update(get_data_pm(documents))
-    if "data_management" in steps:
-        data.update(get_data_dm(documents))
     if "biostats" in steps:
         data.update(get_data_biostats(documents))
+        services_list.append("Biostatistics and Programming")
+    if "data_management" in steps:
+        data.update(get_data_dm(documents))
+        services_list.append("Data Management")
+    if "conform" in steps:
+        data.update(get_data_conform(documents))
+        services_list.append("CONFORM Informatics")
+    if "project_management" in steps:
+        data.update(get_data_pm(documents))
+        services_list.append("Project Management")
+
+
+    services = ", ".join(services_list)
+    if documents:
+        work_order_fields = _extract_work_order_fields(documents)
+        if work_order_fields:
+            data.update(work_order_fields)
+
+    _ensure_manual_work_order_fields(data)
+    data["services"] = services
+    
 
     return data
 
@@ -250,6 +335,8 @@ def run_substeps(steps, data, refresh_opts, dmc_opts):
         d = False
     if "biostats" in steps and do_dmc:
         data.update(calculate_dmc(data, dmc_docs, d))
+
+    _ensure_manual_work_order_fields(data)
 
     return data
 
@@ -313,6 +400,7 @@ def upload_and_extract():
         if not documents and not do_refresh and not do_dmc:
             # Merge every non‑control form field into session["extracted"]
             data = session.get("extracted", {}).copy()
+            _ensure_manual_work_order_fields(data)
             for key, val in request.form.items():
                 if key not in (
                     "calculate_refresh",
@@ -321,6 +409,7 @@ def upload_and_extract():
                     "dmc_file_opt_in"
                 ):
                     data[key] = val
+            _ensure_manual_work_order_fields(data)
             session["extracted"] = data
 
             # Re‑render results table with blanks for any -1
@@ -339,12 +428,14 @@ def upload_and_extract():
         
         if session.get("base_done") and (do_refresh or do_dmc):
             data = session.get("extracted", {}).copy()
+            _ensure_manual_work_order_fields(data)
             extract = run_substeps(
                 steps,
                 data,
                 (do_refresh, refresh_docs),
                 (do_dmc,     dmc_docs),
             )
+            _ensure_manual_work_order_fields(extract)
             session["extracted"] = extract
 
 
@@ -427,6 +518,41 @@ def export():
     def cleanup():
         try:
             os.remove(tmp_in.name)
+            os.remove(tmp_out.name)
+        except OSError:
+            pass
+
+    return resp
+
+
+@app.route("/export_work_order", methods=["POST"])
+def export_work_order():
+    data = session.get("extracted")
+    if not data:
+        return redirect(url_for("select_types"))
+
+    sanitized = {
+        k: ("" if v in (-1, "-1", None) else v)
+        for k, v in data.items()
+    }
+
+    payload = {field: sanitized.get(field, "") for field in WORK_ORDER_FIELDS}
+
+    tmp_out = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
+    tmp_out.close()
+
+    populate_work_order(payload, WO_TEMPLATE_PATH, tmp_out.name)
+
+    resp = send_file(
+        tmp_out.name,
+        as_attachment=True,
+        download_name="work_order.docx",
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+    @resp.call_on_close
+    def cleanup():
+        try:
             os.remove(tmp_out.name)
         except OSError:
             pass
