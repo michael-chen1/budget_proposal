@@ -12,10 +12,12 @@ from extractors import (
     get_data_dm,
     get_data_pm,
     get_data_conform,
+    get_data_eclinical,
 )
 from excel_utils import populate_template
 from word_utils import populate_work_order
 from openpyxl import load_workbook
+from docx import Document
 import tempfile
 
 
@@ -49,6 +51,22 @@ def _truthy(value):
 
 def _should_offer_dmc(steps, data):
     return "biostats" in steps and _truthy(data.get("dmc/ia"))
+
+def selective_update(original: dict, incoming: dict):
+    """
+    Update `original` in-place using values from `incoming`, but only
+    for keys where `original` currently has value None or -1.
+
+    Returns the updated original dict (for convenience).
+    """
+    for key, value in incoming.items():
+        if key not in original:
+            # if the key doesn't exist at all, you can choose to add it
+            original[key] = value
+        else:
+            if original[key] is None or original[key] == -1:
+                original[key] = value
+    return original
 
 
 # Short descriptions for each extracted field. Any field not listed here will
@@ -93,7 +111,7 @@ FIELD_DESCRIPTIONS = {
     "num_external_data_source": "Number of external data sources",
     "num_lab_panel": "Number of lab panels for each local lab",
     "num_local_lab": "Number of local labs",
-    "num_meetings": "",
+    "num_meetings": "Number of project meetings",
     "num_sae": "Number of serious adverse events",
     "num_screen_fail": "Number of screen failure subjects",
     "num_screened_subj": "Number of subjects screened",
@@ -130,12 +148,6 @@ FIELD_DESCRIPTIONS = {
     "tlf_final_unique_listings": "Number of unique listings needed for study",
     "tlf_final_unique_tables": "Number of unique tables needed for study",
     "tlf_ia_fr": "Number of full refreshes for TLFs relating to Interim Analysis (IA)",
-    "tlf_ia_repeat_figures": "Number of repeat figures needed for Interim Analysis (IA)",
-    "tlf_ia_repeat_listings": "Number of repeat listings needed for Interim Analysis (IA)",
-    "tlf_ia_repeat_tables": "Number of repeat tables needed for Interim Analysis (IA)",
-    "tlf_ia_unique_figures": "Number of unique figures needed for Interim Analysis (IA)",
-    "tlf_ia_unique_listings": "Number of unique listings needed for Interim Analysis (IA)",
-    "tlf_ia_unique_tables": "Number of unique tables needed for Interim Analysis (IA)",
     "tlf_repeat_figures": "Number of repeat figures needed",
     "tlf_repeat_listings": "Number of repeat listings needed",
     "tlf_repeat_tables": "Number of repeat tables needed",
@@ -146,6 +158,11 @@ FIELD_DESCRIPTIONS = {
     "num_visits": "Number of visits per subject",
     "avg_unscheduled_vists": "Average number of unscheduled visits per subject",
     "dropout_rate": "Withdrawal rate of enrolled subjects",
+    "num_unique_crf_pages": "Number of unique CRF pages",
+    "num_unique_edit_checks": "Number of unique edit checks",
+    "num_dynamics": "Number of dynamics",
+    "num_custom_functions": "Number of custom functions",
+    
 
 
 }
@@ -176,12 +193,6 @@ FIELD_FORMULAS = {
     "tlf_dmc_unique_tables": "floor(tlf_final_unique_tables * 0.6)",
     "sdtm_dmc_fr": "num_dmc_meet",
     "adam_dmc_fr": "num_dmc_meet",
-    "tlf_ia_repeat_figures": "floor(tlf_final_repeat_figures * 0.75)",
-    "tlf_ia_repeat_listings": "floor(tlf_final_repeat_listings * 0.75)",
-    "tlf_ia_repeat_tables": "floor(tlf_final_repeat_tables * 0.75)",
-    "tlf_ia_unique_figures": "floor(tlf_final_unique_figures * 0.75)",
-    "tlf_ia_unique_listings": "floor(tlf_final_unique_listings * 0.75)",
-    "tlf_ia_unique_tables": "floor(tlf_final_unique_tables * 0.75)",
 }
 # Free-form implementation guidance, hints, or suggested values that help users
 # understand how to populate each field after extraction.
@@ -203,12 +214,10 @@ FIELD_NOTES = {
     "tlf_dmc_unique_tables": "Assuming 60% of total TLFs needed for DMC",
     "sdtm_dmc_fr": "Assuming 1 refresh/meeting",
     "adam_dmc_fr": "Assuming 1 refresh/meeting",
-    "tlf_ia_repeat_figures": "Assuming 75% of total TLFs needed for IA",
-    "tlf_ia_repeat_listings": "Assuming 75% of total TLFs needed for IA",
-    "tlf_ia_repeat_tables": "Assuming 75% of total TLFs needed for IA",
-    "tlf_ia_unique_figures": "Assuming 75% of total TLFs needed for IA",
-    "tlf_ia_unique_listings": "Assuming 75% of total TLFs needed for IA",
-    "tlf_ia_unique_tables": "Assuming 75% of total TLFs needed for IA",
+    "num_unique_crf_pages": "Assuming 60 by default",
+    "num_unique_edit_checks": "Assuming 900 by default",
+    "num_dynamics": "Assuming 250 by default",
+    "num_custom_functions": "Assuming 50 by default",
 }
 
 
@@ -216,6 +225,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.join(BASE_DIR, "templates_xlsx", "template_full.xlsx")
 WO_TEMPLATE_PATH = os.path.join(BASE_DIR, "wo_template.docx")
 
+#for populating work order
 WORK_ORDER_FIELDS = (
     "study_number",
     "wo_number",
@@ -223,10 +233,13 @@ WORK_ORDER_FIELDS = (
     "sponsor",
     "services",
     "budget",
+    "budget_tables"
     "end_date",
     "customer_email",
     "representative_name",
     "title",
+    "edetek_representative_name",
+    "edetek_representative_title",
 )
 
 WORK_ORDER_MANUAL_FIELDS = {
@@ -235,14 +248,134 @@ WORK_ORDER_MANUAL_FIELDS = {
     "customer_email",
     "representative_name",
     "title",
-    "end_date"
+    "end_date",
+    "edetek_representative_name",
+    "edetek_representative_title",
 }
 
-SHEETS_MAP = {"biostats": ["Study Information", "Biostatistics and Programming"],
-              "data_management": ["Study Information", "Clinical Data Management"],
-              "project_management": ["Study Information", "Project Management"],
-              "conform": ["Study Information", "CONFORM Informatics"],
+SHEETS_MAP = {"biostats": ["Study Information", "Budget Summary", "Biostatistics and Programming"],
+              "data_management": ["Study Information", "Budget Summary", "Clinical Data Management"],
+              "project_management": ["Study Information", "Budget Summary", "Project Management"],
+              "conform": ["Study Information", "Budget Summary", "CONFORM Informatics"],
+              "eclinical": ["Study Information", "Budget Summary", "eClinical Setup"],
               }
+
+BUDGET_PLACEHOLDER_TOKEN = "__BUDGET_TABLES__"
+
+
+def _ordered_service_sheets(steps, workbook):
+    seen = set()
+    ordered = []
+    for step in steps:
+        for sheet_name in SHEETS_MAP.get(step, []):
+            if sheet_name in workbook.sheetnames and sheet_name not in seen:
+                ordered.append(sheet_name)
+                seen.add(sheet_name)
+    return ordered
+
+
+def _worksheet_to_rows(worksheet):
+    rows = []
+    for row in worksheet.iter_rows(values_only=True):
+        formatted = ["" if cell is None else str(cell) for cell in row]
+        if not any(formatted):
+            if not rows:
+                continue
+            rows.append(formatted)
+        else:
+            rows.append(formatted)
+
+    while rows and not any(cell for cell in rows[-1]):
+        rows.pop()
+
+    if not rows:
+        return []
+
+    max_cols = max(len(row) for row in rows)
+    for row in rows:
+        if len(row) < max_cols:
+            row.extend([""] * (max_cols - len(row)))
+    return rows
+
+
+def _collect_budget_tables(data, steps):
+    if not steps:
+        return []
+
+    tmp_in = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+    tmp_in.close()
+    try:
+        populate_template(data, TEMPLATE_PATH, tmp_in.name)
+        wb = load_workbook(tmp_in.name, data_only=True)
+        try:
+            tables = []
+            for sheet_name in _ordered_service_sheets(steps, wb):
+                worksheet = wb[sheet_name]
+                rows = _worksheet_to_rows(worksheet)
+                if rows:
+                    tables.append((sheet_name, rows))
+            return tables
+        finally:
+            wb.close()
+    finally:
+        try:
+            os.remove(tmp_in.name)
+        except OSError:
+            pass
+
+
+def _embed_budget_tables(doc_path, tables, placeholder_token):
+    document = Document(doc_path)
+
+    placeholder_para = None
+    for paragraph in document.paragraphs:
+        if placeholder_token in paragraph.text:
+            placeholder_para = paragraph
+            break
+
+    if placeholder_para is None:
+        document.save(doc_path)
+        return
+
+    placeholder_style = placeholder_para.style
+    body = document._body._element
+    body_children = list(body)
+    try:
+        insert_index = body_children.index(placeholder_para._element)
+    except ValueError:
+        document.save(doc_path)
+        return
+
+    body.remove(placeholder_para._element)
+
+    if not tables:
+        replacement = document.add_paragraph()
+        if placeholder_style is not None:
+            replacement.style = placeholder_style
+        body.insert(insert_index, replacement._element)
+        document.save(doc_path)
+        return
+
+    for title, rows in tables:
+        heading = document.add_paragraph(title)
+        if placeholder_style is not None:
+            heading.style = placeholder_style
+        body.insert(insert_index, heading._element)
+        insert_index += 1
+
+        if not rows:
+            continue
+
+        cols = len(rows[0])
+        table = document.add_table(rows=len(rows), cols=cols)
+        table.style = "Table Grid"
+        for row_idx, row in enumerate(rows):
+            for col_idx, value in enumerate(row):
+                table.cell(row_idx, col_idx).text = value
+        body.insert(insert_index, table._element)
+        insert_index += 1
+
+    document.save(doc_path)
 
 
 def allowed_file(filename):
@@ -292,17 +425,20 @@ def run_extraction(steps, documents, refresh_opts, dmc_opts):
     data = {}
     services_list = []
     print(2)
-    if "biostats" in steps:
-        data.update(get_data_biostats(documents))
-        services_list.append("Biostatistics and Programming")
     if "data_management" in steps:
-        data.update(get_data_dm(documents))
+        data = selective_update(data, get_data_dm(documents))
         services_list.append("Data Management")
+    if "eclinical" in steps:
+        data = selective_update(data, get_data_eclinical(documents))
+        services_list.append("eClinical Setup")
+    if "biostats" in steps:
+        data = selective_update(data, get_data_biostats(documents))
+        services_list.append("Biostatistics and Programming")
     if "conform" in steps:
-        data.update(get_data_conform(documents))
+        data = selective_update(data, get_data_conform(documents))
         services_list.append("CONFORM Informatics")
     if "project_management" in steps:
-        data.update(get_data_pm(documents))
+        data = selective_update(data, get_data_pm(documents))
         services_list.append("Project Management")
 
 
@@ -528,6 +664,7 @@ def export():
 @app.route("/export_work_order", methods=["POST"])
 def export_work_order():
     data = session.get("extracted")
+    steps = session.get("extraction_steps", [])
     if not data:
         return redirect(url_for("select_types"))
 
@@ -536,12 +673,16 @@ def export_work_order():
         for k, v in data.items()
     }
 
-    payload = {field: sanitized.get(field, "") for field in WORK_ORDER_FIELDS}
+    budget_tables = _collect_budget_tables(sanitized.copy(), steps)
 
+    payload = {field: sanitized.get(field, "") for field in WORK_ORDER_FIELDS}
+    payload["budget_tables"] = BUDGET_PLACEHOLDER_TOKEN
     tmp_out = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
     tmp_out.close()
 
     populate_work_order(payload, WO_TEMPLATE_PATH, tmp_out.name)
+    _embed_budget_tables(tmp_out.name, budget_tables, BUDGET_PLACEHOLDER_TOKEN)
+
 
     resp = send_file(
         tmp_out.name,

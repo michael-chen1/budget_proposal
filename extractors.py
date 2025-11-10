@@ -310,12 +310,6 @@ def get_data_biostats(documents):
         "tlf_dmc_unique_listings": -1,
         "tlf_dmc_repeat_listings": -1,
         "tlf_dmc_fr": -1,
-        "tlf_ia_unique_tables": -1,
-        "tlf_ia_repeat_tables": -1,
-        "tlf_ia_unique_figures": -1,
-        "tlf_ia_repeat_figures": -1,
-        "tlf_ia_unique_listings": -1,
-        "tlf_ia_repeat_listings": -1,
         "tlf_ia_fr": -1,
         "tlf_final_unique_tables": -1,
         "tlf_final_repeat_tables": -1,
@@ -336,8 +330,8 @@ def get_data_biostats(documents):
         "investigator_listings": -1,
         "investigator_datasets": -1,
         "investigator_years": -1,
-        "patient_profile": -1,
-        "num_meetings": -1
+        "patient_profile": 25, #assumed
+        "num_meetings": 50, #assumed
         }
     print(6)
     data1 = get_provided_data(documents)
@@ -384,12 +378,6 @@ def calculate_dmc(data, documents, use_files):
     set_scaled("tlf_dmc_unique_listings", lu, 0.6)
     set_scaled("tlf_dmc_repeat_listings", lr, 0.6)
 
-    set_scaled("tlf_ia_unique_tables", fu, 0.75)
-    set_scaled("tlf_ia_repeat_tables", fr, 0.75)
-    set_scaled("tlf_ia_unique_figures", gu, 0.75)
-    set_scaled("tlf_ia_repeat_figures", gr, 0.75)
-    set_scaled("tlf_ia_unique_listings", lu, 0.75)
-    set_scaled("tlf_ia_repeat_listings", lr, 0.75)
 
     data["dsur_report_tables"] = 10
     data["dsur_report_datasets"] = 7
@@ -557,25 +545,34 @@ def get_data_dm(documents):
         }
 
     data1 = get_provided_data(documents)
-    sf = data.get("screen_failure_rate", 0)
-    dr = data.get("dropout_rate", 0)
-    sd = data.get("subj_dur", 0)
-    if data1["num_subj"] == -1:
-        data1["num_subj"] = 100
-    data1["num_screened_subj"] = round(1/(1-sf) * data1["num_subj"])
-    data1["num_screen_fail"] = round(sf * data1["num_screened_subj"])
-    data1["num_complete"] = round((1-dr) * data1["num_subj"])
-    data1["num_withdrawn"] = round(dr * data1["num_subj"])
+    sf = _coerce_number(data.get("screen_failure_rate"))
+    dr = _coerce_number(data.get("dropout_rate"))
+    sd = _coerce_number(data1.get("subj_dur"))
+    ns = _coerce_number(data1.get("num_subj"))
+    if ns is None:
+        ns = 100
+    if sd is None:
+        sd = 10
+    data1["num_screened_subj"] = round(1/(1-sf) * ns)
+    data1["num_screen_fail"] = round(sf * ns)
+    data1["num_complete"] = round((1-dr) * ns)
+    data1["num_withdrawn"] = round(dr * ns)
+    data1["num_subj"] = ns
+    data1["subj_dur"] = sd
     data.update(data1)
     
     #run hard-coded formulas
     _maybe_set_total_duration(data)
 
     num_visits = _coerce_number(data.get("num_visits"))
+    print(num_visits)
     if num_visits is None:
         num_visits = 2 * sd + 2
         data["num_visits"] = num_visits
-    
+        print("num_visits:")
+        print(num_visits)
+
+
     crf_pages_per_visit = _coerce_number(data.get("crf_pages_per_visit"))
     if num_visits is None or crf_pages_per_visit is None:
         data["crf_pages_complete"] = -1
@@ -695,6 +692,17 @@ def get_data_conform(documents):
 
     data.update(data1)
     _maybe_set_total_duration(data)
+
+    return data
+
+def get_data_eclinical(documents):
+    data = {
+        "num_unique_crf_pages": 60,
+        "num_unique_edit_checks": 900,
+        "num_dynamics": 250,
+        "num_custom_functions": 50,
+        "crf_pages_complete": 300,
+        }
 
     return data
 
