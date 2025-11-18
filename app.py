@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import inspect
+import math
 import os
 import extractors
 from flask import Flask, request, render_template, session, send_file, redirect, url_for
@@ -219,6 +220,140 @@ FIELD_NOTES = {
     "num_dynamics": "Assuming 250 by default",
     "num_custom_functions": "Assuming 50 by default",
 }
+
+
+def _coerce_numeric(value):
+    if value in (None, "", "-1", -1):
+        return 0.0
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        cleaned = value.strip().replace(",", "")
+        if not cleaned:
+            return 0.0
+        try:
+            return float(cleaned)
+        except ValueError:
+            return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _normalize_formula_result(value):
+    if isinstance(value, float) and math.isfinite(value):
+        if value.is_integer():
+            return int(value)
+        return value
+    return value
+
+
+_FORMULA_ALIASES = {
+    "withdrawal_rate": ("dropout_rate",),
+    "num_screened": ("num_screened_subj",),
+}
+
+
+def _lookup_numeric(data, key):
+    candidates = (key,) + _FORMULA_ALIASES.get(key, ())
+    for candidate in candidates:
+        if candidate in data:
+            return _coerce_numeric(data.get(candidate))
+    return 0.0
+
+
+def _calculate_formula(field, data):
+    num = lambda key: _lookup_numeric(data, key)
+
+    if field == "adam_fr":
+        return num("subj_dur") * 1.5
+    if field == "crf_pages_complete":
+        return num("num_visits") * num("crf_pages_per_visit")
+    if field == "crf_pages_total":
+        return (
+            num("num_complete")
+            * (num("crf_pages_complete") + num("avg_unscheduled_visits") * num("crf_pages_per_visit"))
+            + num("num_withdrawn") * num("crf_pages_withdrawn")
+            + num("num_screen_fail") * num("crf_pages_screen_fail")
+        )
+    if field == "crf_pages_withdrawn":
+        return num("crf_pages_complete") / 2.0
+    if field == "dsur_years":
+        return math.floor(num("total_dur") / 12.0)
+    if field == "investigator_years":
+        return math.floor(num("total_dur") / 12.0)
+    if field == "num_complete":
+        return num("num_subj") * (1 - num("withdrawal_rate"))
+    if field == "num_screen_fail":
+        return num("num_screened") * num("screen_failure_rate")
+    if field == "num_unique_terms_aemh":
+        return num("num_subj") * 10 * 0.05
+    if field == "num_unique_terms_cm":
+        return num("num_subj") * 8 * 0.3
+    if field == "num_withdrawn":
+        return num("num_subj") * num("dropout_rate")
+    if field == "sdtm_fr":
+        return num("subj_dur") * 3
+    if field == "num_dmc_meet":
+        return math.ceil(num("subj_dur") / 6.0)
+    if field == "tlf_final_fr":
+        return num("subj_dur")
+    if field == "tlf_dmc_fr":
+        return num("num_dmc_meet")
+    if field == "tlf_dmc_repeat_figures":
+        return math.floor(num("tlf_final_repeat_figures") * 0.6)
+    if field == "tlf_dmc_repeat_listings":
+        return math.floor(num("tlf_final_repeat_listings") * 0.6)
+    if field == "tlf_dmc_repeat_tables":
+        return math.floor(num("tlf_final_repeat_tables") * 0.6)
+    if field == "tlf_dmc_unique_figures":
+        return math.floor(num("tlf_final_unique_figures") * 0.6)
+    if field == "tlf_dmc_unique_listings":
+        return math.floor(num("tlf_final_unique_listings") * 0.6)
+    if field == "tlf_dmc_unique_tables":
+        return math.floor(num("tlf_final_unique_tables") * 0.6)
+    if field == "sdtm_dmc_fr":
+        return num("num_dmc_meet")
+    if field == "adam_dmc_fr":
+        return num("num_dmc_meet")
+    return None
+
+
+def _apply_auto_formulas(data, auto_flags):
+    if not auto_flags:
+        return data
+
+    for field in FIELD_FORMULAS.keys():
+        if not auto_flags.get(field, True):
+            continue
+        value = _calculate_formula(field, data)
+        if value is None:
+            continue
+        data[field] = _normalize_formula_result(value)
+    return data
+
+
+def _normalize_auto_flags(data, stored_flags=None):
+    editable_keys = {
+        k for k in data.keys() if k not in WORK_ORDER_MANUAL_FIELDS
+    }
+    editable_keys.update(
+        k for k in FIELD_FORMULAS.keys() if k not in WORK_ORDER_MANUAL_FIELDS
+    )
+
+    if not editable_keys:
+        return {}
+
+    flags = {}
+    for key in editable_keys:
+        if stored_flags is not None and key in stored_flags:
+            flags[key] = bool(stored_flags[key])
+        else:
+            flags[key] = True
+    return flags
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -486,6 +621,7 @@ def select_types():
             return render_template("select_types.html", error="Pick at least one.")
         session["extraction_steps"] = chosen
         session.pop("extracted", None)
+        session.pop("auto_update_flags", None)
         return redirect(url_for("upload_and_extract"))
     return render_template("select_types.html")
 
@@ -537,16 +673,35 @@ def upload_and_extract():
             # Merge every non‑control form field into session["extracted"]
             data = session.get("extracted", {}).copy()
             _ensure_manual_work_order_fields(data)
+            auto_flags = _normalize_auto_flags(
+                data,
+                session.get("auto_update_flags"),
+            )
+
+            posted_auto = set(request.form.getlist("auto_update"))
+            present_auto = set(request.form.getlist("auto_update_field"))
+            for key in auto_flags.keys():
+                if key in present_auto:
+                    auto_flags[key] = key in posted_auto
+
+            control_fields = {
+                "calculate_refresh",
+                "calculate_dmc",
+                "refresh_file_opt_in",
+                "dmc_file_opt_in",
+                "auto_update",
+                "auto_update_field",
+            }
+
             for key, val in request.form.items():
-                if key not in (
-                    "calculate_refresh",
-                    "calculate_dmc",
-                    "refresh_file_opt_in",
-                    "dmc_file_opt_in"
-                ):
-                    data[key] = val
+                if key in control_fields:
+                    continue
+                data[key] = val
+
+            data = _apply_auto_formulas(data, auto_flags)
             _ensure_manual_work_order_fields(data)
             session["extracted"] = data
+            session["auto_update_flags"] = auto_flags
 
             # Re‑render results table with blanks for any -1
             display = {
@@ -560,6 +715,7 @@ def upload_and_extract():
                 formulas=FIELD_FORMULAS,
                 notes=FIELD_NOTES,
                 show_dmc_prompt=_should_offer_dmc(steps, data),
+                auto_flags=auto_flags,
             )
         
         if session.get("base_done") and (do_refresh or do_dmc):
@@ -572,25 +728,35 @@ def upload_and_extract():
                 (do_dmc,     dmc_docs),
             )
             _ensure_manual_work_order_fields(extract)
+            auto_flags = _normalize_auto_flags(
+                extract,
+                session.get("auto_update_flags"),
+            )
+            extract = _apply_auto_formulas(extract, auto_flags)
             session["extracted"] = extract
+            session["auto_update_flags"] = auto_flags
 
 
-            display = {k: ("" if v in (-1, "-1") else v) for k, v in data.items()}
+            display = {k: ("" if v in (-1, "-1") else v) for k, v in extract.items()}
             return render_template(
                 "results.html",
                 results=display,
                 descriptions=FIELD_DESCRIPTIONS,
                 formulas=FIELD_FORMULAS,
                 notes=FIELD_NOTES,
-                show_dmc_prompt=_should_offer_dmc(steps, data),
+                show_dmc_prompt=_should_offer_dmc(steps, extract),
+                auto_flags=auto_flags,
             )
 
         
         print(8)
         session.pop("base_done", None)
-        data = run_extraction(steps, documents, (do_refresh, refresh_docs), (do_dmc, dmc_docs))  
+        data = run_extraction(steps, documents, (do_refresh, refresh_docs), (do_dmc, dmc_docs))
         session["base_done"] = True
+        auto_flags = _normalize_auto_flags(data)
+        data = _apply_auto_formulas(data, auto_flags)
         session["extracted"] = data
+        session["auto_update_flags"] = auto_flags
         print(1)
         display = {k: ("" if v in (-1, "-1") else v) for k, v in data.items()}
         return render_template(
@@ -600,6 +766,7 @@ def upload_and_extract():
             formulas=FIELD_FORMULAS,
             notes=FIELD_NOTES,
             show_dmc_prompt=_should_offer_dmc(steps, data),
+            auto_flags=auto_flags,
         )
 
     # GET → show upload form
