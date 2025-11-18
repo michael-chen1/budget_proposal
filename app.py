@@ -149,12 +149,6 @@ FIELD_DESCRIPTIONS = {
     "tlf_final_unique_listings": "Number of unique listings needed for study",
     "tlf_final_unique_tables": "Number of unique tables needed for study",
     "tlf_ia_fr": "Number of full refreshes for TLFs relating to Interim Analysis (IA)",
-    "tlf_repeat_figures": "Number of repeat figures needed",
-    "tlf_repeat_listings": "Number of repeat listings needed",
-    "tlf_repeat_tables": "Number of repeat tables needed",
-    "tlf_unique_figures": "Number of unique figures needed",
-    "tlf_unique_listings": "Number of unique figures needed",
-    "tlf_unique_tables": "Number of unique figures needed",
     "total_dur": "Total duration of all phases of study (months)",
     "num_visits": "Number of visits per subject",
     "avg_unscheduled_vists": "Average number of unscheduled visits per subject",
@@ -178,7 +172,7 @@ FIELD_FORMULAS = {
     "dsur_years": "floor(total_dur / 12)",
     "investigator_years": "floor(total_dur / 12)",
     "num_complete": "num_subj * (1 - withdrawal_rate)",
-    "num_screen_fail": "num_screened * screen_failure_rate",
+    "num_screen_fail": "screen_failure_rate/(1-screen_failure_rate) * num_subj",
     "num_unique_terms_aemh": "num_subj * 10 * 0.05",
     "num_unique_terms_cm": "num_subj * 8 * 0.3",
     "num_withdrawn": "num_subj * dropout_rate",
@@ -194,6 +188,10 @@ FIELD_FORMULAS = {
     "tlf_dmc_unique_tables": "floor(tlf_final_unique_tables * 0.6)",
     "sdtm_dmc_fr": "num_dmc_meet",
     "adam_dmc_fr": "num_dmc_meet",
+    "auto_queries_total": "auto_queries_complete * num_complete + auto_queries_screen_fail * num_screen_fail + auto_queries_withdrawn * num_withdrawn",
+    "manual_queries_total": "manual_queries_complete * num_complete + manual_queries_withdrawn * num_withdrawn",
+    "num_screened_subj": "1/(1-screen_failure_rate) * num_subj",
+    
 }
 # Free-form implementation guidance, hints, or suggested values that help users
 # understand how to populate each field after extraction.
@@ -279,6 +277,12 @@ def _calculate_formula(field, data):
             + num("num_withdrawn") * num("crf_pages_withdrawn")
             + num("num_screen_fail") * num("crf_pages_screen_fail")
         )
+    if field == "auto_queries_total":
+        return num("auto_queries_complete") * num("num_complete") + num("auto_queries_screen_fail") * num("num_screen_fail") + num("auto_queries_withdrawn") * num("num_withdrawn")
+    if field == "manual_queries_total":
+        return num("manual_queries_complete") * num("num_complete") + num("manual_queries_withdrawn") * num("num_withdrawn")
+    if field == "num_screened_subj":
+        return 1 / (1-num("screen_failure_rate")) * num("num_subj")
     if field == "crf_pages_withdrawn":
         return num("crf_pages_complete") / 2.0
     if field == "dsur_years":

@@ -267,6 +267,13 @@ For Phase 3 study, 120-200 tlfs (35 unique tables 50 repeat tables 40 unique lis
         tlf_final_unique_listings = data["tlf_unique_listings"],
         tlf_final_repeat_listings = data["tlf_repeat_listings"],
     )
+    del data["tlf_unique_tables"]
+    del data["tlf_unique_figures"]
+    del data["tlf_unique_listings"]
+    del data["tlf_repeat_tables"]
+    del data["tlf_repeat_figures"]
+    del data["tlf_repeat_listings"]
+    
     return data
 
 
