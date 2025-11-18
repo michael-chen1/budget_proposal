@@ -80,6 +80,7 @@
             <th>Formulas</th>
             <th>Notes</th>
             <th>Value</th>
+            <th>Auto update?</th>
           </tr>
         </thead>
         <tbody>
@@ -96,6 +97,18 @@
                   value="{{ value }}"
                   style="width:100px;"
                 >
+              </td>
+              <td>
+                <label style="display:flex;align-items:center;gap:4px;">
+                  <input
+                    type="checkbox"
+                    name="auto_update"
+                    value="{{ key }}"
+                    {% if auto_flags is not defined or auto_flags.get(key, True) %}checked{% endif %}
+                  >
+                  Auto update?
+                </label>
+                <input type="hidden" name="auto_update_field" value="{{ key }}">
               </td>
             </tr>
           {% endfor %}
